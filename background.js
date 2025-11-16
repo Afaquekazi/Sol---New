@@ -1,8 +1,10 @@
 chrome.action.onClicked.addListener(async (tab) => {
+ console.log('🎯 Solthron: Extension icon clicked for tab:', tab.id);
  try {
    await chrome.tabs.sendMessage(tab.id, { action: "toggleExtension" });
+   console.log('🎯 Solthron: Toggle message sent successfully');
  } catch (error) {
-   console.error('Error sending message:', error);
+   console.error('❌ Solthron: Error sending message:', error);
  }
 });
 
