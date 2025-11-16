@@ -1,10 +1,8 @@
 chrome.action.onClicked.addListener(async (tab) => {
- console.log('🎯 Solthron: Extension icon clicked for tab:', tab.id);
  try {
    await chrome.tabs.sendMessage(tab.id, { action: "toggleExtension" });
-   console.log('🎯 Solthron: Toggle message sent successfully');
  } catch (error) {
-   console.error('❌ Solthron: Error sending message:', error);
+   // Error sending toggle message
  }
 });
 
@@ -14,7 +12,6 @@ async function getAuthToken() {
     const result = await chrome.storage.local.get(['authToken']);
     return result.authToken || null;
   } catch (error) {
-    console.error('Error getting auth token:', error);
     return null;
   }
 }
@@ -22,12 +19,12 @@ async function getAuthToken() {
 // Helper function to create headers with optional auth
 async function createHeaders() {
   const headers = { 'Content-Type': 'application/json' };
-  
+
   const authToken = await getAuthToken();
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;
   }
-  
+
   return headers;
 }
 
@@ -37,7 +34,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
    const mode = request.data.mode || 'enhance';
    let endpoint = 'generate';
    let requestBody = { ...request.data, mode: mode };
-   
+
    if (mode === 'persona_generator') {
      endpoint = 'generate-persona';
      requestBody = {
@@ -45,13 +42,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
        mode: mode
      };
    }
-   
+
    const controller = new AbortController();
    const timeoutId = setTimeout(() => {
-     console.log(`Request timeout for mode: ${mode}`);
      controller.abort();
    }, mode === 'persona_generator' ? 30000 : 15000);
-   
+
    createHeaders().then(headers => {
      fetch(`https://afaque.pythonanywhere.com/${endpoint}`, {
        method: 'POST',
@@ -67,20 +63,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
        return response.json();
      })
      .then(data => {
-       console.log(`Success for mode ${mode}:`, data.status || 'completed');
        sendResponse({success: true, data});
      })
      .catch(error => {
        clearTimeout(timeoutId);
-       console.error('API error for mode:', mode, error);
-       
+
        let errorMessage = error.message;
        if (error.name === 'AbortError') {
          errorMessage = `Request timeout - ${mode === 'persona_generator' ? 'AI analysis' : 'processing'} took too long`;
        } else if (error.message.includes('Failed to fetch')) {
          errorMessage = 'Network error - please check your connection';
        }
-       
+
        sendResponse({success: false, error: errorMessage});
      });
    });
@@ -91,7 +85,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
  if (request.type === 'smart_followups') {
    const controller = new AbortController();
    const timeoutId = setTimeout(() => controller.abort(), 20000);
-   
+
    createHeaders().then(headers => {
      fetch('https://afaque.pythonanywhere.com/smart-followups', {
        method: 'POST',
@@ -112,7 +106,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
      .then(data => sendResponse({success: true, data}))
      .catch(error => {
        clearTimeout(timeoutId);
-       console.error('Smart followups API error:', error);
        sendResponse({success: false, error: error.message});
      });
    });
@@ -123,7 +116,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
  if (request.type === 'magic_pill_enhance') {
    const controller = new AbortController();
    const timeoutId = setTimeout(() => controller.abort(), 20000);
-   
+
    createHeaders().then(headers => {
      fetch('https://afaque.pythonanywhere.com/magic-pill-enhance', {
        method: 'POST',
@@ -142,20 +135,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
        return response.json();
      })
      .then(data => {
-       console.log('Magic pill enhancement success:', data);
        sendResponse({success: true, data});
      })
      .catch(error => {
        clearTimeout(timeoutId);
-       console.error('Magic pill API error:', error);
-       
+
        let errorMessage = error.message;
        if (error.name === 'AbortError') {
          errorMessage = 'Magic pill enhancement timeout - please try with shorter text';
        } else if (error.message.includes('Failed to fetch')) {
          errorMessage = 'Network error - please check your connection';
        }
-       
+
        sendResponse({success: false, error: errorMessage});
      });
    });
@@ -164,11 +155,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
  // Gmail Enhancement Handler - USED by Gmail Magic Pill feature
  if (request.type === 'gmail_enhance') {
-   console.log('📧 Gmail enhancement request:', {
-     text: request.data.text?.substring(0, 50) + '...',
-     mode: request.data.mode
-   });
-
    (async () => {
      const controller = new AbortController();
      const timeoutId = setTimeout(() => controller.abort(), 20000);
@@ -192,7 +178,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
        const data = await response.json();
 
        if (!response.ok) {
-         console.error('❌ Backend error:', response.status, data);
          sendResponse({
            success: false,
            error: data.error || `HTTP ${response.status}: ${response.statusText}`
@@ -200,12 +185,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
          return;
        }
 
-       console.log('✅ Gmail enhancement success:', data);
        sendResponse({success: true, data});
 
      } catch (error) {
        clearTimeout(timeoutId);
-       console.error('❌ Gmail enhancement API error:', error);
 
        let errorMessage = error.message || 'Unknown error';
        if (error.name === 'AbortError') {
@@ -223,11 +206,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
  // Gmail Custom Prompt Enhancement Handler - USED by Gmail Custom Prompt feature
  if (request.type === 'gmail_enhance_custom') {
-   console.log('🎯 Gmail custom enhancement request:', {
-     text: request.data.text?.substring(0, 50) + '...',
-     customPrompt: request.data.customPrompt
-   });
-
    (async () => {
      const controller = new AbortController();
      const timeoutId = setTimeout(() => controller.abort(), 20000);
@@ -251,7 +229,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
        const data = await response.json();
 
        if (!response.ok) {
-         console.error('❌ Backend error:', response.status, data);
          sendResponse({
            success: false,
            error: data.error || `HTTP ${response.status}: ${response.statusText}`
@@ -259,12 +236,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
          return;
        }
 
-       console.log('✅ Gmail custom enhancement success:', data);
        sendResponse({success: true, data});
 
      } catch (error) {
        clearTimeout(timeoutId);
-       console.error('❌ Gmail custom enhancement API error:', error);
 
        let errorMessage = error.message || 'Unknown error';
        if (error.name === 'AbortError') {
@@ -282,10 +257,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
  // Gmail Smart Reply - Analyze Email Questions Handler
  if (request.type === 'analyze_email_questions') {
-   console.log('🔍 Analyzing email for questions:', {
-     emailBody: request.data.emailBody?.substring(0, 50) + '...'
-   });
-
    (async () => {
      const controller = new AbortController();
      const timeoutId = setTimeout(() => controller.abort(), 20000);
@@ -307,7 +278,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
        const data = await response.json();
 
        if (!response.ok) {
-         console.error('❌ Backend error:', response.status, data);
          sendResponse({
            success: false,
            error: data.error || `HTTP ${response.status}: ${response.statusText}`
@@ -315,12 +285,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
          return;
        }
 
-       console.log('✅ Email analysis success:', data);
        sendResponse({success: true, data});
 
      } catch (error) {
        clearTimeout(timeoutId);
-       console.error('❌ Email analysis API error:', error);
 
        let errorMessage = error.message || 'Unknown error';
        if (error.name === 'AbortError') {
@@ -338,11 +306,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
  // Gmail Smart Reply - Generate Reply Handler
  if (request.type === 'gmail_smart_reply_generate') {
-   console.log('✨ Generating smart reply:', {
-     questionsCount: request.data.questions?.length,
-     answersCount: Object.keys(request.data.answers || {}).length
-   });
-
    (async () => {
      const controller = new AbortController();
      const timeoutId = setTimeout(() => controller.abort(), 25000);
@@ -366,7 +329,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
        const data = await response.json();
 
        if (!response.ok) {
-         console.error('❌ Backend error:', response.status, data);
          sendResponse({
            success: false,
            error: data.error || `HTTP ${response.status}: ${response.statusText}`
@@ -374,12 +336,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
          return;
        }
 
-       console.log('✅ Smart reply generation success:', data);
        sendResponse({success: true, data});
 
      } catch (error) {
        clearTimeout(timeoutId);
-       console.error('❌ Smart reply generation API error:', error);
 
        let errorMessage = error.message || 'Unknown error';
        if (error.name === 'AbortError') {
@@ -437,21 +397,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
            .then(data => sendResponse({success: true, data}))
            .catch(error => {
              clearTimeout(timeoutId);
-             console.error('Image processing API error:', error);
              sendResponse({success: false, error: error.message});
            });
          });
        };
        reader.onerror = () => {
          clearTimeout(timeoutId);
-         console.error('FileReader error');
          sendResponse({success: false, error: 'Failed to read image file'});
        };
        reader.readAsDataURL(blob);
      })
      .catch(error => {
        clearTimeout(timeoutId);
-       console.error('Image fetch error:', error);
        sendResponse({success: false, error: error.message});
      });
    return true;
@@ -459,11 +416,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
  // AI Platform Custom Prompt Handler - USED for AI platform customize mode
  if (request.type === 'ai_platform_custom') {
-   console.log('🎯 AI Platform custom prompt request:', {
-     text: request.data.text?.substring(0, 50) + '...',
-     customPrompt: request.data.customPrompt
-   });
-
    (async () => {
      const controller = new AbortController();
      const timeoutId = setTimeout(() => controller.abort(), 20000);
@@ -485,7 +437,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
        const data = await response.json();
 
        if (!response.ok) {
-         console.error('❌ Backend error:', response.status, data);
          sendResponse({
            success: false,
            error: data.error || `HTTP ${response.status}: ${response.statusText}`
@@ -493,12 +444,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
          return;
        }
 
-       console.log('✅ AI Platform custom prompt success:', data);
        sendResponse({success: true, data});
 
      } catch (error) {
        clearTimeout(timeoutId);
-       console.error('❌ AI Platform custom prompt API error:', error);
 
        let errorMessage = error.message || 'Unknown error';
        if (error.name === 'AbortError') {
