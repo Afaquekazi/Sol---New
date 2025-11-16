@@ -3380,6 +3380,8 @@ function createUI() {
             flex-direction: column;
             gap: 10px;
             padding: 4px;
+            max-height: 100%;
+            overflow-y: auto;
         }
 
         .followup-card,
@@ -3468,6 +3470,29 @@ function createUI() {
         .platform-indicator svg {
             width: 14px;
             height: 14px;
+        }
+
+        /* Scrollbar styles for smart followups/actions */
+        .smart-followups-container::-webkit-scrollbar,
+        .smart-actions-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .smart-followups-container::-webkit-scrollbar-track,
+        .smart-actions-container::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        .smart-followups-container::-webkit-scrollbar-thumb,
+        .smart-actions-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+        }
+
+        .smart-followups-container::-webkit-scrollbar-thumb:hover,
+        .smart-actions-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
         }
 
         /* Smart Enhancements */
