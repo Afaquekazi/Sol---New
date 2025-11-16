@@ -5764,66 +5764,13 @@ class WorkflowExecutor {
         // Small delay to ensure the text is processed
         await this.sleep(500);
 
-        let response;
+        // ✅ MANUAL INTERVENTION: User needs to press Enter for ALL steps
 
-        if (stepIndex === 0) {
-            // ✅ STEP 1: MANUAL SUBMISSION (user presses Enter)
+        // Show visual notification
+        showNotification(`📝 Step ${stepIndex + 1}: Please press Enter to submit the prompt`, 'info');
 
-            showNotification(`📝 Step 1: Please press Enter to submit the prompt`, 'info');
-
-            // Wait for user to manually submit and for response
-            response = await this.waitForDeepSeekUserSubmitAndResponse();
-        } else {
-            // ✅ STEP 2+: AUTOMATIC SUBMISSION (fully automated)
-
-            // Try to find and click the send button
-            const sendButtonSelectors = [
-                'button[type="submit"]',
-                'button[aria-label*="Send"]',
-                'button[aria-label*="Submit"]',
-                'button:has(svg)', // Buttons with SVG icons (usually send buttons)
-                'button[data-testid*="send"]',
-                'button.send-button',
-                'svg[data-icon="send"]' // Try SVG icon directly
-            ];
-
-            let sendButton = null;
-            for (const selector of sendButtonSelectors) {
-                const buttons = document.querySelectorAll(selector);
-                for (const btn of buttons) {
-                    if (btn.offsetParent !== null && !btn.disabled) {
-                        sendButton = btn;
-
-                        break;
-                    }
-                }
-                if (sendButton) break;
-            }
-
-            if (sendButton) {
-                // Click the send button
-                sendButton.click();
-
-            } else {
-                // Fallback: Trigger Enter key
-
-                const enterEvent = new KeyboardEvent('keydown', {
-                    key: 'Enter',
-                    code: 'Enter',
-                    keyCode: 13,
-                    which: 13,
-                    bubbles: true,
-                    cancelable: true
-                });
-                inputField.dispatchEvent(enterEvent);
-            }
-
-            await this.sleep(500); // Wait for submission to process
-
-            // Wait for response to complete (automatic detection)
-            // Skip the "wait for user submission" part since we already submitted
-            response = await this.waitForDeepSeekResponse();
-        }
+        // Wait for user to manually submit and for response
+        const response = await this.waitForDeepSeekUserSubmitAndResponse();
 
         return response;
     }
@@ -5875,66 +5822,13 @@ class WorkflowExecutor {
         // Small delay to ensure the text is processed
         await this.sleep(500);
 
-        let response;
+        // ✅ MANUAL INTERVENTION: User needs to press Enter for ALL steps
 
-        if (stepIndex === 0) {
-            // ✅ STEP 1: MANUAL SUBMISSION (user presses Enter)
+        // Show visual notification
+        showNotification(`📝 Step ${stepIndex + 1}: Please press Enter to submit the prompt`, 'info');
 
-            showNotification(`📝 Step 1: Please press Enter to submit the prompt`, 'info');
-
-            // Wait for user to manually submit and for response
-            response = await this.waitForGeminiUserSubmitAndResponse();
-        } else {
-            // ✅ STEP 2+: AUTOMATIC SUBMISSION (fully automated)
-
-            // Try to find and click the send button
-            const sendButtonSelectors = [
-                'button[type="submit"]',
-                'button[aria-label*="Send"]',
-                'button[aria-label*="Submit"]',
-                'button:has(svg)', // Buttons with SVG icons (usually send buttons)
-                'button[data-testid*="send"]',
-                'button.send-button',
-                'button[aria-label*="send"]'
-            ];
-
-            let sendButton = null;
-            for (const selector of sendButtonSelectors) {
-                const buttons = document.querySelectorAll(selector);
-                for (const btn of buttons) {
-                    if (btn.offsetParent !== null && !btn.disabled) {
-                        sendButton = btn;
-
-                        break;
-                    }
-                }
-                if (sendButton) break;
-            }
-
-            if (sendButton) {
-                // Click the send button
-                sendButton.click();
-
-            } else {
-                // Fallback: Trigger Enter key
-
-                const enterEvent = new KeyboardEvent('keydown', {
-                    key: 'Enter',
-                    code: 'Enter',
-                    keyCode: 13,
-                    which: 13,
-                    bubbles: true,
-                    cancelable: true
-                });
-                inputField.dispatchEvent(enterEvent);
-            }
-
-            await this.sleep(500); // Wait for submission to process
-
-            // Wait for response to complete (automatic detection)
-            // Skip the "wait for user submission" part since we already submitted
-            response = await this.waitForGeminiResponse();
-        }
+        // Wait for user to manually submit and for response
+        const response = await this.waitForGeminiUserSubmitAndResponse();
 
         return response;
     }
@@ -6096,66 +5990,13 @@ class WorkflowExecutor {
         // Small delay to ensure the text is processed
         await this.sleep(500);
 
-        let response;
+        // ✅ MANUAL INTERVENTION: User needs to press Enter for ALL steps
 
-        if (stepIndex === 0) {
-            // ✅ STEP 1: MANUAL SUBMISSION (user presses Enter)
+        // Show visual notification
+        showNotification(`📝 Step ${stepIndex + 1}: Please press Enter to submit the prompt`, 'info');
 
-            showNotification(`📝 Step 1: Please press Enter to submit the prompt`, 'info');
-
-            // Wait for user to manually submit and for response
-            response = await this.waitForLovableUserSubmitAndResponse();
-        } else {
-            // ✅ STEP 2+: AUTOMATIC SUBMISSION (fully automated)
-
-            // Try to find and click the send button
-            const sendButtonSelectors = [
-                'button[type="submit"]',
-                'button[aria-label*="Send"]',
-                'button[aria-label*="Submit"]',
-                'button:has(svg)', // Buttons with SVG icons (usually send buttons)
-                'button[data-testid*="send"]',
-                'button.send-button',
-                'button[title*="Send"]'
-            ];
-
-            let sendButton = null;
-            for (const selector of sendButtonSelectors) {
-                const buttons = document.querySelectorAll(selector);
-                for (const btn of buttons) {
-                    if (btn.offsetParent !== null && !btn.disabled) {
-                        sendButton = btn;
-
-                        break;
-                    }
-                }
-                if (sendButton) break;
-            }
-
-            if (sendButton) {
-                // Click the send button
-                sendButton.click();
-
-            } else {
-                // Fallback: Trigger Enter key
-
-                const enterEvent = new KeyboardEvent('keydown', {
-                    key: 'Enter',
-                    code: 'Enter',
-                    keyCode: 13,
-                    which: 13,
-                    bubbles: true,
-                    cancelable: true
-                });
-                inputField.dispatchEvent(enterEvent);
-            }
-
-            await this.sleep(500); // Wait for submission to process
-
-            // Wait for response to complete (automatic detection)
-            // Skip the "wait for user submission" part since we already submitted
-            response = await this.waitForLovableResponse();
-        }
+        // Wait for user to manually submit and for response
+        const response = await this.waitForLovableUserSubmitAndResponse();
 
         return response;
     }
@@ -6264,65 +6105,13 @@ class WorkflowExecutor {
         // Small delay to ensure the text is processed
         await this.sleep(500);
 
-        let response;
+        // ✅ MANUAL INTERVENTION: User needs to press Enter for ALL steps
 
-        if (stepIndex === 0) {
-            // ✅ STEP 1: MANUAL SUBMISSION (user presses Enter)
-            // This starts the session and activates the right-side chat
+        // Show visual notification
+        showNotification(`📝 Step ${stepIndex + 1}: Please press Enter to submit the prompt`, 'info');
 
-            showNotification(`📝 Step 1: Please press Enter to submit the prompt`, 'info');
-
-            // Wait for user to manually submit and for response
-            response = await this.waitForClaudeCodeManualSubmitAndResponse();
-        } else {
-            // ✅ STEP 2+: AUTOMATIC SUBMISSION (fully automated)
-            // Right-side chat is now active and stable
-
-            // Try to find and click the send button
-            const sendButtonSelectors = [
-                'button[type="submit"]',
-                'button[aria-label*="Send"]',
-                'button[aria-label*="Submit"]',
-                'button:has(svg)', // Buttons with SVG icons (usually send buttons)
-                'button[data-testid*="send"]'
-            ];
-
-            let sendButton = null;
-            for (const selector of sendButtonSelectors) {
-                const buttons = document.querySelectorAll(selector);
-                for (const btn of buttons) {
-                    if (btn.offsetParent !== null && !btn.disabled) {
-                        sendButton = btn;
-
-                        break;
-                    }
-                }
-                if (sendButton) break;
-            }
-
-            if (sendButton) {
-                // Click the send button
-                sendButton.click();
-
-            } else {
-                // Fallback: Trigger Enter key
-
-                const enterEvent = new KeyboardEvent('keydown', {
-                    key: 'Enter',
-                    code: 'Enter',
-                    keyCode: 13,
-                    which: 13,
-                    bubbles: true,
-                    cancelable: true
-                });
-                inputField.dispatchEvent(enterEvent);
-            }
-
-            await this.sleep(500); // Wait for submission to process
-
-            // Wait for response to complete (automatic detection)
-            response = await this.waitForClaudeCodeSubmitAndResponse();
-        }
+        // Wait for user to manually submit and for response
+        const response = await this.waitForClaudeCodeManualSubmitAndResponse();
 
         return response;
     }
