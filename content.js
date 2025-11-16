@@ -10285,9 +10285,11 @@ async function processImage(img) {
 // Chrome runtime message handler
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "toggleExtension") {
+        console.log('🎯 Solthron: Toggle message received!', 'Current state:', isButtonVisible);
         isButtonVisible = !isButtonVisible;
-        
+
         button.style.display = isButtonVisible ? 'block' : 'none';
+        console.log('🎯 Solthron: Button display set to:', button.style.display);
         
         if (!isButtonVisible) {
             // Disable right-click features when extension is hidden
@@ -10493,8 +10495,9 @@ document.addEventListener('keydown', async (e) => {
 }, true);
 
 // ✅ INITIALIZE THE EXTENSION
-
+console.log('🎯 Solthron Extension: Initializing...');
 createUI();
+console.log('🎯 Solthron Extension: UI Created, button hidden by default');
 initializeProfileHandlers();
 
 // Initialize autocomplete system for @ mentions
