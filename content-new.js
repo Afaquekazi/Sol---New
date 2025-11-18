@@ -1,9 +1,9 @@
 // ========== SOLTHRON EXTENSION ==========
-// HYBRID BUILD - Modular + Original Code
-// Build Date: 2025-11-18T17:10:23.245Z
+// HYBRID BUILD - Phase 3 Modular + Original Code
+// Build Date: 2025-11-18T17:21:48.230Z
 //
 // This file combines:
-// - Modular source from /src (already extracted)
+// - Modular source from /src (extracted modules)
 // - Original code for features not yet modularized
 //
 // To rebuild: node build-simple.js
@@ -872,6 +872,118 @@ function getTextOffset(element, node, offset) {
 }
 
 
+// ========== DOM.JS (MODULAR) ==========
+// ========== DOM MANIPULATION UTILITIES ==========
+
+// Get input text from various element types
+function getInputText(element) {
+    if (!element) return '';
+
+    if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
+        return element.value;
+    }
+
+    // For contenteditable elements
+    return element.textContent || element.innerText || '';
+}
+
+// Set input text for various element types
+function setInputText(element, text) {
+    if (!element) return false;
+
+    if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
+        element.value = text;
+        // Trigger input event to notify any listeners
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+    }
+
+    // For contenteditable elements
+    if (element.isContentEditable) {
+        element.textContent = text;
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+    }
+
+    return false;
+}
+
+// Create element with styles
+function createElement(tag, styles = {}, attributes = {}) {
+    const element = document.createElement(tag);
+
+    // Apply styles
+    Object.entries(styles).forEach(([key, value]) => {
+        element.style[key] = value;
+    });
+
+    // Apply attributes
+    Object.entries(attributes).forEach(([key, value]) => {
+        element.setAttribute(key, value);
+    });
+
+    return element;
+}
+
+// Remove element safely
+function removeElement(element) {
+    if (element && element.parentNode) {
+        element.parentNode.removeChild(element);
+        return true;
+    }
+    return false;
+}
+
+// Check if element is visible in viewport
+function isElementInViewport(element) {
+    if (!element) return false;
+
+    const rect = element.getBoundingClientRect();
+    return (
+        rect.top >= 0 &&
+        rect.left >= 0 &&
+        rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+        rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+    );
+}
+
+// Scroll element into view smoothly
+function scrollIntoView(element, options = { behavior: 'smooth', block: 'nearest' }) {
+    if (element && element.scrollIntoView) {
+        element.scrollIntoView(options);
+    }
+}
+
+// Wait for element to appear in DOM
+function waitForElement(selector, timeout = 5000) {
+    return new Promise((resolve, reject) => {
+        const element = document.querySelector(selector);
+        if (element) {
+            resolve(element);
+            return;
+        }
+
+        const observer = new MutationObserver((mutations, obs) => {
+            const element = document.querySelector(selector);
+            if (element) {
+                obs.disconnect();
+                resolve(element);
+            }
+        });
+
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+
+        setTimeout(() => {
+            observer.disconnect();
+            reject(new Error(`Element ${selector} not found within ${timeout}ms`));
+        }, timeout);
+    });
+}
+
+
 // ========== ANIMATIONS.JS (MODULAR) ==========
 // ========== UI ANIMATION UTILITIES ==========
 
@@ -1270,6 +1382,269 @@ async function renameWorkflow(workflowId, newTitle) {
 }
 
 
+// ========== SEARCH.JS (MODULAR) ==========
+// ========== AUTOCOMPLETE SEARCH ==========
+
+// Search saved items (prompts and workflows)
+async function searchSavedItems(query) {
+    try {
+        const prompts = await loadPrompts();
+        const workflows = await loadWorkflows();
+
+        const allItems = [
+            ...prompts.map(p => ({...p, type: 'prompt', icon: '📝', category: 'Prompt'})),
+            ...workflows.map(w => ({
+                ...w,
+                type: 'workflow',
+                icon: '⚙️',
+                category: 'Workflow',
+                text: w.title // Use title for searching
+            }))
+        ];
+
+        if (!query) {
+            return allItems.slice(0, 8); // Show first 8 if no query
+        }
+
+        // Fuzzy search
+        return allItems.filter(item => {
+            // Search in title for all items
+            if (item.title && item.title.toLowerCase().includes(query.toLowerCase())) {
+                return true;
+            }
+            // Search in text for prompts
+            if (item.text && item.text.toLowerCase().includes(query.toLowerCase())) {
+                return true;
+            }
+            // Search in workflow steps
+            if (item.steps) {
+                return item.steps.some(step =>
+                    step.prompt.toLowerCase().includes(query.toLowerCase())
+                );
+            }
+            return false;
+        }).slice(0, 8); // Max 8 results
+
+    } catch (error) {
+        return [];
+    }
+}
+
+
+// ========== DROPDOWN.JS (MODULAR) ==========
+// ========== AUTOCOMPLETE DROPDOWN UI ==========
+
+// Create autocomplete dropdown element
+function createAutocompleteDropdown() {
+    if (autocompleteDropdown) {
+        autocompleteDropdown.remove();
+    }
+
+    const dropdown = document.createElement('div');
+    dropdown.id = 'solthron-autocomplete';
+    dropdown.style.cssText = `
+        position: absolute;
+        background: #2a2a2a;
+        border: 2px solid rgba(255, 215, 0, 0.4);
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        max-height: 280px;
+        overflow-y: auto;
+        z-index: 9999999;
+        min-width: 300px;
+        display: none;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    `;
+
+    // Add scrollbar styling
+    const style = document.createElement('style');
+    style.textContent = `
+        #solthron-autocomplete::-webkit-scrollbar {
+            width: 6px;
+        }
+        #solthron-autocomplete::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+        #solthron-autocomplete::-webkit-scrollbar-thumb {
+            background: rgba(255, 215, 0, 0.3);
+            border-radius: 3px;
+        }
+        #solthron-autocomplete::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 215, 0, 0.5);
+        }
+    `;
+    document.head.appendChild(style);
+
+    document.body.appendChild(dropdown);
+    setAutocompleteDropdown(dropdown);
+    return dropdown;
+}
+
+// Render autocomplete items in dropdown
+function renderAutocompleteItems(matches) {
+    if (!autocompleteDropdown) {
+        createAutocompleteDropdown();
+    }
+
+    autocompleteDropdown.innerHTML = '';
+
+    if (matches.length === 0) {
+        const emptyState = document.createElement('div');
+        emptyState.style.cssText = `
+            padding: 12px;
+            color: rgba(255, 255, 255, 0.5);
+            text-align: center;
+            font-size: 12px;
+        `;
+        emptyState.textContent = 'No saved items found';
+        autocompleteDropdown.appendChild(emptyState);
+        return;
+    }
+
+    matches.forEach((item, index) => {
+        const option = document.createElement('div');
+        option.className = 'autocomplete-option';
+        option.dataset.index = index;
+
+        const isSelected = index === selectedAutocompleteIndex;
+
+        option.style.cssText = `
+            padding: 10px 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border-left: 3px solid ${isSelected ? '#ffd700' : 'transparent'};
+            background: ${isSelected ? 'rgba(255, 215, 0, 0.1)' : 'transparent'};
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        `;
+
+        option.innerHTML = `
+            <span style="font-size: 16px; flex-shrink: 0;">${item.icon}</span>
+            <div style="flex: 1; overflow: hidden;">
+                <div style="
+                    color: rgba(255, 255, 255, 0.9);
+                    font-size: 13px;
+                    font-weight: 500;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                ">${item.title}</div>
+                <div style="
+                    color: rgba(255, 255, 255, 0.5);
+                    font-size: 11px;
+                    margin-top: 2px;
+                ">${item.category}</div>
+            </div>
+            <div style="
+                color: rgba(255, 215, 0, 0.6);
+                font-size: 11px;
+                padding: 2px 6px;
+                background: rgba(255, 215, 0, 0.1);
+                border-radius: 3px;
+            ">${item.type === 'prompt' ? 'P' : 'W'}</div>
+        `;
+
+        // Hover effects
+        option.addEventListener('mouseenter', () => {
+            option.style.background = 'rgba(255, 215, 0, 0.1)';
+        });
+
+        option.addEventListener('mouseleave', () => {
+            if (index !== selectedAutocompleteIndex) {
+                option.style.background = 'transparent';
+            }
+        });
+
+        // Click to select
+        option.addEventListener('click', () => {
+            const event = new CustomEvent('autocomplete-select', { detail: { item, index } });
+            autocompleteDropdown.dispatchEvent(event);
+        });
+
+        autocompleteDropdown.appendChild(option);
+    });
+}
+
+// Hide autocomplete dropdown
+function hideAutocompleteDropdown() {
+    if (autocompleteDropdown) {
+        autocompleteDropdown.style.display = 'none';
+    }
+}
+
+
+// ========== QUICK-SAVE.JS (MODULAR) ==========
+// ========== QUICK SAVE KEYBOARD SHORTCUT ==========
+
+// Check credits before using a feature
+async function checkCredits(featureMode) {
+    // For now, simple check - can be expanded
+    try {
+        const token = await BackendAuth.getAuthToken();
+        if (!token) {
+            return { success: false, message: 'Please login to use this feature' };
+        }
+        return { success: true };
+    } catch (error) {
+        return { success: false, message: 'Error checking credits' };
+    }
+}
+
+// Handle Alt+S quick save shortcut
+async function handleQuickSave(e) {
+    // Check for Alt+S
+    if (e.altKey && e.key === 's') {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Try to get highlighted text first
+        let text = window.getSelection().toString().trim();
+
+        // If no highlighted text, get text from input field
+        if (!text && e.target) {
+            text = getInputText(e.target);
+        }
+
+        if (text.trim().length > 0) {
+            // Check credits before saving
+            const creditCheck = await checkCredits('save_prompt');
+            if (!creditCheck.success) {
+                showNotification(creditCheck.message || 'Please login to save prompts', 'error');
+                return;
+            }
+
+            // Clear text selection immediately to prevent accidental processing
+            window.getSelection().removeAllRanges();
+
+            // Set flag to prevent processing for 2 seconds
+            setJustSavedPrompt(true);
+            setTimeout(() => {
+                setJustSavedPrompt(false);
+            }, 2000);
+
+            // Save directly to prompts
+            const success = await savePrompt(text);
+            if (success) {
+                // Deduct credits after successful save
+                const deductResult = await BackendAuth.deductCredits('save_prompt');
+                if (deductResult.success) {
+                    setPageCredits(deductResult.remainingCredits);
+                }
+                // Show visual feedback
+                showQuickSaveFeedback();
+            }
+        }
+    }
+}
+
+// Initialize quick save keyboard shortcut
+function initializeQuickSave() {
+    document.addEventListener('keydown', handleQuickSave, true);
+}
+
+
 // Generate unique session ID
 function getExtensionSessionId() {
     if (!extensionSessionId) {
@@ -1368,505 +1743,6 @@ function getFeatureCredits(mode) {
 
     return 6;
 }
-
-// ========== @MENTIONS AUTOCOMPLETE SYSTEM ==========
-
-async function searchSavedItems(query) {
-    try {
-        const prompts = await loadPrompts();
-        const workflows = await loadWorkflows();
-        
-        const allItems = [
-            ...prompts.map(p => ({...p, type: 'prompt', icon: '📝', category: 'Prompt'})),
-            ...workflows.map(w => ({
-                ...w, 
-                type: 'workflow', 
-                icon: '⚙️', 
-                category: 'Workflow',
-                text: w.title // Use title for searching
-            }))
-        ];
-        
-        if (!query) {
-            return allItems.slice(0, 8); // Show first 8 if no query
-        }
-        
-        // Fuzzy search
-        return allItems.filter(item => {
-            // Search in title for all items
-            if (item.title && item.title.toLowerCase().includes(query.toLowerCase())) {
-                return true;
-            }
-            // Search in text for prompts
-            if (item.text && item.text.toLowerCase().includes(query.toLowerCase())) {
-                return true;
-            }
-            // Search in workflow steps
-            if (item.steps) {
-                return item.steps.some(step => 
-                    step.prompt.toLowerCase().includes(query.toLowerCase())
-                );
-            }
-            return false;
-        }).slice(0, 8); // Max 8 results
-        
-    } catch (error) {
-
-        return [];
-    }
-}
-
-function createAutocompleteDropdown() {
-    if (autocompleteDropdown) {
-        autocompleteDropdown.remove();
-    }
-    
-    autocompleteDropdown = document.createElement('div');
-    autocompleteDropdown.id = 'solthron-autocomplete';
-    autocompleteDropdown.style.cssText = `
-        position: absolute;
-        background: #2a2a2a;
-        border: 2px solid rgba(255, 215, 0, 0.4);
-        border-radius: 8px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-        max-height: 280px;
-        overflow-y: auto;
-        z-index: 9999999;
-        min-width: 300px;
-        display: none;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    `;
-    
-    // Add scrollbar styling
-    const style = document.createElement('style');
-    style.textContent = `
-        #solthron-autocomplete::-webkit-scrollbar {
-            width: 6px;
-        }
-        #solthron-autocomplete::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 3px;
-        }
-        #solthron-autocomplete::-webkit-scrollbar-thumb {
-            background: rgba(255, 215, 0, 0.3);
-            border-radius: 3px;
-        }
-        #solthron-autocomplete::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 215, 0, 0.5);
-        }
-    `;
-    document.head.appendChild(style);
-    
-    document.body.appendChild(autocompleteDropdown);
-    return autocompleteDropdown;
-}
-
-function renderAutocompleteItems(matches) {
-    if (!autocompleteDropdown) {
-        createAutocompleteDropdown();
-    }
-    
-    autocompleteDropdown.innerHTML = '';
-    
-    if (matches.length === 0) {
-        const emptyState = document.createElement('div');
-        emptyState.style.cssText = `
-            padding: 12px;
-            color: rgba(255, 255, 255, 0.5);
-            text-align: center;
-            font-size: 12px;
-        `;
-        emptyState.textContent = 'No saved items found';
-        autocompleteDropdown.appendChild(emptyState);
-        return;
-    }
-    
-    matches.forEach((item, index) => {
-        const option = document.createElement('div');
-        option.className = 'autocomplete-option';
-        option.dataset.index = index;
-        
-        const isSelected = index === selectedAutocompleteIndex;
-        
-        option.style.cssText = `
-            padding: 10px 12px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            border-left: 3px solid ${isSelected ? '#ffd700' : 'transparent'};
-            background: ${isSelected ? 'rgba(255, 215, 0, 0.1)' : 'transparent'};
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        `;
-        
-        option.innerHTML = `
-            <span style="font-size: 16px; flex-shrink: 0;">${item.icon}</span>
-            <div style="flex: 1; overflow: hidden;">
-                <div style="
-                    color: rgba(255, 255, 255, 0.9);
-                    font-size: 13px;
-                    font-weight: 500;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                ">${item.title}</div>
-                <div style="
-                    color: rgba(255, 255, 255, 0.5);
-                    font-size: 11px;
-                    margin-top: 2px;
-                ">${item.category}</div>
-            </div>
-            <div style="
-                color: rgba(255, 215, 0, 0.6);
-                font-size: 11px;
-                flex-shrink: 0;
-            ">↵</div>
-        `;
-        
-        option.addEventListener('mouseenter', () => {
-            selectedAutocompleteIndex = index;
-            renderAutocompleteItems(autocompleteMatches);
-        });
-        
-        option.addEventListener('mousedown', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-
-          insertAutocompleteItem(item);
-});
-
-        option.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-
-          insertAutocompleteItem(item);
-});
-        
-        autocompleteDropdown.appendChild(option);
-    });
-}
-
-function positionAutocompleteDropdown() {
-    if (!autocompleteDropdown || !currentInputField) return;
-    
-    const cursorPos = getCursorPosition(currentInputField);
-    
-    if (cursorPos) {
-        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-        const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-        
-        // Position below cursor
-        let x = cursorPos.x + scrollLeft;
-        let y = cursorPos.y + scrollTop + (cursorPos.height || 20) + 5;
-        
-        // Viewport boundary checks
-        const dropdownWidth = 300;
-        const dropdownHeight = Math.min(280, autocompleteMatches.length * 60);
-        const viewportWidth = window.innerWidth;
-        const viewportHeight = window.innerHeight;
-        
-        // Adjust horizontal position if needed
-        if (x + dropdownWidth > viewportWidth + scrollLeft - 10) {
-            x = viewportWidth + scrollLeft - dropdownWidth - 10;
-        }
-        
-        // Adjust vertical position if needed (show above cursor if not enough space below)
-        if (y + dropdownHeight > viewportHeight + scrollTop - 10) {
-            y = cursorPos.y + scrollTop - dropdownHeight - 5;
-        }
-        
-        autocompleteDropdown.style.left = `${x}px`;
-        autocompleteDropdown.style.top = `${y}px`;
-    } else {
-        // Fallback positioning
-        const rect = currentInputField.getBoundingClientRect();
-        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-        const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-        
-        autocompleteDropdown.style.left = `${rect.left + scrollLeft}px`;
-        autocompleteDropdown.style.top = `${rect.bottom + scrollTop + 5}px`;
-    }
-}
-
-async function showAutocompleteDropdown(searchTerm) {
-    autocompleteMatches = await searchSavedItems(searchTerm);
-    selectedAutocompleteIndex = 0;
-    
-    if (!autocompleteDropdown) {
-        createAutocompleteDropdown();
-    }
-    
-    renderAutocompleteItems(autocompleteMatches);
-    positionAutocompleteDropdown();
-    autocompleteDropdown.style.display = 'block';
-}
-
-async function showWorkflowStepDropdown(stepNumber) {
-    const step = activeWorkflow[stepNumber - 1];
-
-    // ✅ DEFENSIVE: Validate step exists and has a prompt
-    if (!step || !step.prompt || typeof step.prompt !== 'string') {
-
-        return; // Don't show dropdown for invalid step
-    }
-
-    // Create a pseudo-item for the workflow step
-    autocompleteMatches = [{
-        id: `workflow-step-${stepNumber}`,
-        type: 'workflow-step',
-        icon: '⚙️',
-        title: `Step ${stepNumber}`,
-        category: `${activeWorkflowName} Workflow`,
-        prompt: step.prompt,
-        stepNumber: stepNumber
-    }];
-    
-    selectedAutocompleteIndex = 0;
-    
-    if (!autocompleteDropdown) {
-        createAutocompleteDropdown();
-    }
-    
-    renderAutocompleteItems(autocompleteMatches);
-    positionAutocompleteDropdown();
-    autocompleteDropdown.style.display = 'block';
-}
-
-function hideAutocompleteDropdown() {
-    if (autocompleteDropdown) {
-        autocompleteDropdown.style.display = 'none';
-    }
-    autocompleteMatches = [];
-    selectedAutocompleteIndex = 0;
-    lastAtPosition = -1;
-}
-
-// Helper function to get text from input field (textarea or contenteditable)
-function getInputText(element) {
-    if (!element) return '';
-
-    if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
-        return element.value || '';
-    } else if (element.isContentEditable || element.contentEditable === 'true') {
-        return element.innerText || element.textContent || '';
-    }
-
-    return '';
-}
-
-// Helper function to set text in input field (textarea or contenteditable)
-function setInputText(element, text) {
-    if (!element || text === undefined) return;
-
-    if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
-        // For textarea/input elements
-        element.value = text;
-
-        // Trigger events to notify the platform
-        element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-        element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
-
-        // Set cursor to end
-        element.selectionStart = element.selectionEnd = text.length;
-
-    } else if (element.isContentEditable || element.contentEditable === 'true') {
-        // For contenteditable elements
-
-        // Clear existing content
-        element.innerHTML = '';
-
-        // Create text node with the new content
-        const textNode = document.createTextNode(text);
-        element.appendChild(textNode);
-
-        // Trigger events
-        element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-        element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
-
-        // Set cursor to end
-        const range = document.createRange();
-        const selection = window.getSelection();
-
-        try {
-            range.selectNodeContents(element);
-            range.collapse(false); // Collapse to end
-            selection.removeAllRanges();
-            selection.addRange(range);
-        } catch (e) {
-            // Fallback if range setting fails
-        }
-    }
-}
-
-async function insertAutocompleteItem(item) {
-    if (!currentInputField) {
-        return;
-    }
-
-    const input = currentInputField;
-    const platform = detectAIPlatform();
-
-    // Get content to insert
-    let contentToInsert = '';
-    let isPromptInsertion = false; // Track if this is a regular prompt (not workflow)
-
-    if (item.type === 'workflow') {
-        // Reset any previous workflow and activate new one
-        activeWorkflow = item.steps;
-        activeWorkflowName = item.name;
-        // ✅ DEFENSIVE: Ensure first step has a prompt
-        if (!item.steps || !item.steps[0] || !item.steps[0].prompt) {
-            return;
-        }
-        contentToInsert = item.steps[0].prompt;
-    } else if (item.type === 'workflow-step') {
-        // Insert specific workflow step
-        // ✅ DEFENSIVE: Ensure prompt exists and is not the title
-        if (!item.prompt || typeof item.prompt !== 'string') {
-            return;
-        }
-        // ✅ SAFETY: Ensure we're not inserting the title instead of prompt
-        if (item.prompt === item.title) {
-        }
-        contentToInsert = item.prompt;
-    } else {
-        // Regular prompt insertion - requires credits
-        isPromptInsertion = true;
-        // ✅ DEFENSIVE: Ensure text exists
-        if (!item.text || typeof item.text !== 'string') {
-            return;
-        }
-        contentToInsert = item.text;
-    }
-
-    // ✅ Check credits for regular prompt insertion
-    if (isPromptInsertion) {
-        const creditCheck = await checkCredits('prompt_autocomplete');
-        if (!creditCheck.success) {
-            showNotification(creditCheck.message || 'Please login to use prompt autocomplete', 'error');
-            hideAutocompleteDropdown();
-            return;
-        }
-    }
-
-    try {
-        // Get current text using your existing helper
-        const currentText = getInputText(input);
-
-        // Find the @ position
-        const atIndex = currentText.lastIndexOf('@');
-
-        let newText;
-        if (atIndex !== -1) {
-            // Find where the @mention ends (space, newline, or end of text)
-            let mentionEnd = atIndex + 1;
-            while (mentionEnd < currentText.length &&
-                   currentText[mentionEnd] !== ' ' &&
-                   currentText[mentionEnd] !== '\n') {
-                mentionEnd++;
-            }
-
-            // Build new text: before @ + content + after mention
-            newText = currentText.substring(0, atIndex) +
-                     contentToInsert +
-                     currentText.substring(mentionEnd);
-        } else {
-            newText = currentText + '\n\n' + contentToInsert;
-        }
-
-        // Use your existing setInputText function
-        setInputText(input, newText);
-
-        // ✅ Deduct credits after successful insertion (only for prompts)
-        if (isPromptInsertion) {
-            const deductResult = await BackendAuth.deductCredits('prompt_autocomplete');
-            if (deductResult.success) {
-                pageCredits = deductResult.remainingCredits;
-            }
-        }
-
-        // Force focus back to input
-        setTimeout(() => {
-            input.focus();
-        }, 100);
-
-    } catch (error) {
-    }
-
-    // Hide dropdown
-    hideAutocompleteDropdown();
-}
-
-function getTextOffset(element, node, offset) {
-    let textOffset = 0;
-    const walker = document.createTreeWalker(
-        element,
-        NodeFilter.SHOW_TEXT,
-        null,
-        false
-    );
-    
-    let currentNode;
-    while (currentNode = walker.nextNode()) {
-        if (currentNode === node) {
-            return textOffset + offset;
-        }
-        textOffset += currentNode.textContent.length;
-    }
-    
-    return textOffset;
-}
-
-// ========== QUICK SAVE FUNCTION (Ctrl+Shift+S) ==========
-// ========== QUICK SAVE FUNCTION (Alt+S) ==========
-async function handleQuickSave(e) {
-    // Check for Alt+S
-    if (e.altKey && e.key === 's') {
-        e.preventDefault();
-        e.stopPropagation();
-
-        // Try to get highlighted text first
-        let text = window.getSelection().toString().trim();
-
-        // If no highlighted text, get text from input field
-        if (!text && e.target) {
-            text = getInputText(e.target);
-        }
-
-        if (text.trim().length > 0) {
-            // ✅ Check credits before saving
-            const creditCheck = await checkCredits('save_prompt');
-            if (!creditCheck.success) {
-                showNotification(creditCheck.message || 'Please login to save prompts', 'error');
-                return;
-            }
-
-            // Clear text selection immediately to prevent accidental processing
-            window.getSelection().removeAllRanges();
-
-            // Set flag to prevent processing for 2 seconds (increased for safety)
-            justSavedPrompt = true;
-            setTimeout(() => {
-                justSavedPrompt = false;
-            }, 2000);
-
-            // Save directly to prompts
-            const success = await savePrompt(text);
-            if (success) {
-                // ✅ Deduct credits after successful save
-                const deductResult = await BackendAuth.deductCredits('save_prompt');
-                if (deductResult.success) {
-                    pageCredits = deductResult.remainingCredits;
-                }
-                // Show visual feedback
-                showQuickSaveFeedback();
-            }
-        }
-    }
-}
-
-// Register Alt+S keyboard shortcut listener
-document.addEventListener('keydown', handleQuickSave, true);
 
 // ========== INITIALIZE AUTOCOMPLETE SYSTEM ==========
 function initializeAutocomplete() {

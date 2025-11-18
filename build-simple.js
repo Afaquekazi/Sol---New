@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 
-console.log('🔨 Building Solthron Extension (Simple Build)...\n');
+console.log('🔨 Building Solthron Extension (Phase 3 Build)...\n');
 
 // Read original backup
 const originalContent = fs.readFileSync('content.js.backup', 'utf8');
@@ -34,11 +34,11 @@ let output = '';
 
 // Add header
 output += `// ========== SOLTHRON EXTENSION ==========
-// HYBRID BUILD - Modular + Original Code
+// HYBRID BUILD - Phase 3 Modular + Original Code
 // Build Date: ${new Date().toISOString()}
 //
 // This file combines:
-// - Modular source from /src (already extracted)
+// - Modular source from /src (extracted modules)
 // - Original code for features not yet modularized
 //
 // To rebuild: node build-simple.js
@@ -66,15 +66,23 @@ const modulePaths = [
     'src/utils/text-processing.js',
     'src/utils/code-detector.js',
     'src/utils/cursor.js',
+    'src/utils/dom.js',
 
     // UI
     'src/ui/animations.js',
     'src/ui/notifications.js',
 
-    // Features
+    // Features - Storage
     'src/features/chats/manager.js',
     'src/features/prompts/storage.js',
     'src/features/workflows/storage.js',
+
+    // Features - Autocomplete
+    'src/features/autocomplete/search.js',
+    'src/features/autocomplete/dropdown.js',
+
+    // Features - Quick Actions
+    'src/features/quick-actions/quick-save.js',
 ];
 
 console.log('📦 Adding modular code...\n');
@@ -113,7 +121,9 @@ const sectionsToSkip = [
     'SAVE CHAT EXCHANGE',
     'LOAD SAVED CHATS',
     'DELETE SAVED CHAT',
-    'RENAME SAVED CHAT'
+    'RENAME SAVED CHAT',
+    '@MENTIONS AUTOCOMPLETE SYSTEM',
+    'QUICK SAVE FUNCTION'
 ];
 
 for (let i = 0; i < lines.length; i++) {
