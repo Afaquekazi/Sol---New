@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Analytics Endpoint Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #00ff00;
+        }
+        .result {
+            margin: 20px 0;
+            padding: 15px;
+            background: #2d2d2d;
+            border-left: 4px solid #00ff00;
+        }
+        .error {
+            border-left-color: #ff0000;
+            color: #ff6b6b;
+        }
+        button {
+            padding: 10px 20px;
+            background: #00ff00;
+            border: none;
+            color: #000;
+            cursor: pointer;
+            font-weight: bold;
+            margin: 5px;
+        }
+        button:hover {
+            background: #00dd00;
+        }
+    </style>
+</head>
+<body>
+    <h1>Extension Analytics Diagnostic Test</h1>
+    <p>This page tests if your analytics endpoints are working correctly.</p>
+
+    <h2>Tests:</h2>
+    <button onclick="testTrackEndpoint()">1. Test /extension/track endpoint</button>
+    <button onclick="testAnalyticsEndpoint()">2. Test /extension/analytics endpoint</button>
+    <button onclick="testDashboardLoad()">3. Test /extension/dashboard loads</button>
+    <button onclick="runAllTests()">Run All Tests</button>
+
+    <div id="results"></div>
+
+    <script>
+        const API_BASE = 'https://afaque.pythonanywhere.com';
+
+        function addResult(message, isError = false) {
+            const div = document.createElement('div');
+            div.className = 'result' + (isError ? ' error' : '');
+            div.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong><br>${message}`;
+            document.getElementById('results').appendChild(div);
+        }
+
+        async function testTrackEndpoint() {
+            addResult('Testing /extension/track endpoint...');
+            try {
+                const response = await fetch(`${API_BASE}/extension/track`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        event: 'test_event',
+                        sessionId: 'test_' + Date.now(),
+                        userId: null,
+                        version: '1.5',
+                        metadata: { source: 'diagnostic_test' },
+                        error: null
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    addResult('✅ /extension/track endpoint working! Event tracked successfully.');
+                } else {
+                    addResult('❌ /extension/track returned error: ' + JSON.stringify(data), true);
+                }
+            } catch (error) {
+                addResult('❌ /extension/track failed: ' + error.message, true);
+            }
+        }
+
+        async function testAnalyticsEndpoint() {
+            addResult('Testing /extension/analytics endpoint...');
+            try {
+                const response = await fetch(`${API_BASE}/extension/analytics`);
+                const data = await response.json();
+
+                if (data.success) {
+                    addResult('✅ /extension/analytics working!<br>' +
+                             'Total events: ' + JSON.stringify(data.totals.events) + '<br>' +
+                             'Unique sessions: ' + data.totals.unique_sessions + '<br>' +
+                             'Unique users: ' + data.totals.unique_users);
+                } else {
+                    addResult('❌ /extension/analytics returned error: ' + (data.error || 'Unknown error'), true);
+                }
+            } catch (error) {
+                addResult('❌ /extension/analytics failed: ' + error.message, true);
+            }
+        }
+
+        async function testDashboardLoad() {
+            addResult('Testing /extension/dashboard endpoint...');
+            try {
+                const response = await fetch(`${API_BASE}/extension/dashboard`);
+                const html = await response.text();
+
+                if (html.includes('Extension Analytics Dashboard')) {
+                    addResult('✅ /extension/dashboard loads successfully!');
+                } else {
+                    addResult('⚠️ /extension/dashboard loaded but content unexpected', true);
+                }
+            } catch (error) {
+                addResult('❌ /extension/dashboard failed: ' + error.message, true);
+            }
+        }
+
+        async function runAllTests() {
+            document.getElementById('results').innerHTML = '';
+            addResult('🚀 Starting all tests...');
+
+            await testTrackEndpoint();
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            await testAnalyticsEndpoint();
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            await testDashboardLoad();
+
+            addResult('✅ All tests completed!');
+        }
+    </script>
+</body>
+</html>

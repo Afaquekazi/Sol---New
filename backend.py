@@ -7331,6 +7331,18 @@ def get_extension_analytics():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/extension/version-check', methods=['GET'])
+def extension_version_check():
+    """Check which version of analytics code is deployed"""
+    return jsonify({
+        'success': True,
+        'version': '2.0',  # Updated version after SQL fix
+        'message': 'SQL syntax fix applied',
+        'git_commit': '4de1cbc (localStorage fix)',
+        'database_exists': os.path.exists('extension_analytics.db')
+    })
+
+
 @app.route('/extension/dashboard', methods=['GET'])
 def extension_dashboard():
     """Extension Analytics Dashboard"""
