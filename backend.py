@@ -7247,8 +7247,10 @@ def get_extension_analytics():
         def get_stats(time_filter=''):
             if time_filter:
                 where_clause = f"WHERE {time_filter}"
+                and_clause = "AND"
             else:
                 where_clause = ""
+                and_clause = "WHERE"
 
             # Get event counts
             cursor.execute(f'''
@@ -7272,7 +7274,7 @@ def get_extension_analytics():
                 SELECT COUNT(DISTINCT user_id)
                 FROM extension_events
                 {where_clause}
-                AND user_id IS NOT NULL
+                {and_clause} user_id IS NOT NULL
             ''')
             unique_users = cursor.fetchone()[0]
 
