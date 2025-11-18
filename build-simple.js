@@ -48,17 +48,33 @@ output += `// ========== SOLTHRON EXTENSION ==========
 
 // Add all modular code
 const modulePaths = [
+    // Core
     'src/core/constants.js',
     'src/core/state.js',
+
+    // API
     'src/api/backend-auth.js',
+
+    // Analytics
     'src/analytics/tracker.js',
+
+    // Platform
     'src/platform/detector.js',
     'src/platform/extractors.js',
+
+    // Utils
     'src/utils/text-processing.js',
     'src/utils/code-detector.js',
     'src/utils/cursor.js',
+
+    // UI
     'src/ui/animations.js',
     'src/ui/notifications.js',
+
+    // Features
+    'src/features/chats/manager.js',
+    'src/features/prompts/storage.js',
+    'src/features/workflows/storage.js',
 ];
 
 console.log('📦 Adding modular code...\n');
@@ -93,7 +109,11 @@ const sectionsToSkip = [
     'CURSOR POSITION UTILITIES',
     'DETECT CODE IN TEXT',
     'DETECT PROGRAMMING LANGUAGE',
-    'UNIVERSAL NOTIFICATION FUNCTION'
+    'UNIVERSAL NOTIFICATION FUNCTION',
+    'SAVE CHAT EXCHANGE',
+    'LOAD SAVED CHATS',
+    'DELETE SAVED CHAT',
+    'RENAME SAVED CHAT'
 ];
 
 for (let i = 0; i < lines.length; i++) {

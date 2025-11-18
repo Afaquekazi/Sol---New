@@ -1,6 +1,6 @@
 // ========== SOLTHRON EXTENSION ==========
 // HYBRID BUILD - Modular + Original Code
-// Build Date: 2025-11-18T16:59:32.330Z
+// Build Date: 2025-11-18T17:10:23.245Z
 //
 // This file combines:
 // - Modular source from /src (already extracted)
@@ -961,6 +961,315 @@ function showWarningNotification(message) {
 }
 
 
+// ========== MANAGER.JS (MODULAR) ==========
+// ========== CHATS MANAGEMENT ==========
+
+// Save chat exchange
+async function saveChatExchange(exchangeData) {
+    // Check if a chat is starred/active (append mode)
+    if (isChatStarActive && activeChatId) {
+        try {
+            const data = await chrome.storage.local.get('savedChats');
+            const savedChats = data.savedChats || [];
+            const chatIndex = savedChats.findIndex(chat => chat.id === activeChatId);
+
+            if (chatIndex !== -1) {
+                // Append to existing chat in Q&A format
+                const newExchange = `\n\n---\n\nQ: ${exchangeData.question}\nA: ${exchangeData.answer}`;
+
+                // Check if the original format is Q&A style or old format
+                const isOldFormat = !savedChats[chatIndex].question.startsWith('Q: ');
+
+                if (isOldFormat) {
+                    // Convert old format to new Q&A format
+                    savedChats[chatIndex].question = `Q: ${savedChats[chatIndex].question}\nA: ${savedChats[chatIndex].answer}`;
+                    savedChats[chatIndex].answer = ''; // Clear answer field
+                }
+
+                // Append new exchange
+                savedChats[chatIndex].question += newExchange;
+
+                // Update metadata
+                savedChats[chatIndex].date = new Date().toISOString();
+
+                // Update detection flags
+                savedChats[chatIndex].hasCode = savedChats[chatIndex].hasCode || exchangeData.hasCode;
+                if (exchangeData.language && !savedChats[chatIndex].language) {
+                    savedChats[chatIndex].language = exchangeData.language;
+                }
+
+                await chrome.storage.local.set({ savedChats });
+                return true;
+            }
+        } catch (error) {
+            return false;
+        }
+    } else {
+        // Create new chat in Q&A format
+        try {
+            const data = await chrome.storage.local.get('savedChats');
+            const savedChats = data.savedChats || [];
+
+            // Format new chats in Q&A style
+            const formattedData = {
+                ...exchangeData,
+                question: `Q: ${exchangeData.question}\nA: ${exchangeData.answer}`,
+                answer: '' // Empty since we're storing both in question field
+            };
+
+            savedChats.push(formattedData);
+            await chrome.storage.local.set({ savedChats });
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+}
+
+// Load saved chats
+async function loadSavedChats() {
+    try {
+        const data = await chrome.storage.local.get('savedChats');
+        return data.savedChats || [];
+    } catch (error) {
+        return [];
+    }
+}
+
+// Delete saved chat
+async function deleteSavedChat(chatId) {
+    try {
+        const data = await chrome.storage.local.get('savedChats');
+        const savedChats = (data.savedChats || []).filter(c => c.id !== chatId);
+        await chrome.storage.local.set({ savedChats });
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+
+// Rename saved chat
+async function renameSavedChat(chatId, newTitle) {
+    try {
+        const data = await chrome.storage.local.get('savedChats');
+        const savedChats = data.savedChats || [];
+        const chatIndex = savedChats.findIndex(chat => chat.id === chatId);
+
+        if (chatIndex !== -1) {
+            savedChats[chatIndex].title = newTitle;
+            savedChats[chatIndex].date = new Date().toISOString();
+            await chrome.storage.local.set({ savedChats });
+            return true;
+        }
+        return false;
+    } catch (error) {
+        return false;
+    }
+}
+
+
+// ========== STORAGE.JS (MODULAR) ==========
+// ========== PROMPTS STORAGE ==========
+
+// Load prompts from storage
+async function loadPrompts() {
+    try {
+        const data = await chrome.storage.local.get('savedPrompts');
+        let savedPrompts = data.savedPrompts || [];
+
+        // Migration - Add titles to old prompts that don't have them
+        let needsUpdate = false;
+        savedPrompts = savedPrompts.map(prompt => {
+            if (!prompt.title) {
+                prompt.title = generateTitleFromText(prompt.text);
+                needsUpdate = true;
+            }
+            return prompt;
+        });
+
+        // Save migrated prompts back to storage
+        if (needsUpdate) {
+            await chrome.storage.local.set({ savedPrompts });
+        }
+
+        return savedPrompts;
+    } catch (error) {
+        return [];
+    }
+}
+
+// Save a new prompt
+async function savePrompt(promptText) {
+    try {
+        const data = await chrome.storage.local.get('savedPrompts');
+        const savedPrompts = data.savedPrompts || [];
+
+        const newPrompt = {
+            id: 'prompt_' + Date.now(),
+            text: promptText,
+            title: generateTitleFromText(promptText),
+            timestamp: new Date().toISOString()
+        };
+
+        savedPrompts.push(newPrompt);
+        await chrome.storage.local.set({ savedPrompts });
+        return newPrompt;
+    } catch (error) {
+        return null;
+    }
+}
+
+// Delete a prompt
+async function deletePrompt(promptId) {
+    try {
+        const data = await chrome.storage.local.get('savedPrompts');
+        const savedPrompts = (data.savedPrompts || []).filter(p => p.id !== promptId);
+        await chrome.storage.local.set({ savedPrompts });
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+
+// Rename a prompt
+async function renamePrompt(promptId, newTitle) {
+    try {
+        const data = await chrome.storage.local.get('savedPrompts');
+        const savedPrompts = data.savedPrompts || [];
+        const promptIndex = savedPrompts.findIndex(prompt => prompt.id === promptId);
+
+        if (promptIndex !== -1) {
+            // CRITICAL: Only update title, NEVER touch text
+            savedPrompts[promptIndex].title = newTitle;
+            savedPrompts[promptIndex].timestamp = new Date().toISOString();
+
+            await chrome.storage.local.set({ savedPrompts });
+            return true;
+        }
+        return false;
+    } catch (error) {
+        return false;
+    }
+}
+
+
+// ========== STORAGE.JS (MODULAR) ==========
+// ========== WORKFLOWS STORAGE ==========
+
+// Built-in workflows
+const BUILT_IN_WORKFLOWS = [
+    {
+        id: 'workflow-blogwriter',
+        name: 'BlogWriter',
+        title: 'Blog Writer Workflow',
+        steps: [
+            { number: 1, prompt: 'Write a blog article about AI trends' },
+            { number: 2, prompt: 'Add some real life stories' },
+            { number: 3, prompt: 'Add SEO keywords' },
+            { number: 4, prompt: 'Make it easy to read and use simple english' },
+            { number: 5, prompt: 'Add a catchy title and meta description' }
+        ],
+        timestamp: new Date().toISOString(),
+        source: 'built_in'
+    },
+    {
+        id: 'workflow-emailresponder',
+        name: 'EmailResponder',
+        title: 'Email Response Workflow',
+        steps: [
+            { number: 1, prompt: 'Read the email and understand the main points' },
+            { number: 2, prompt: 'Draft a professional response addressing all concerns' },
+            { number: 3, prompt: 'Add a friendly greeting and closing' },
+            { number: 4, prompt: 'Proofread for tone and clarity' }
+        ],
+        timestamp: new Date().toISOString(),
+        source: 'built_in'
+    },
+    {
+        id: 'workflow-poetrywriter',
+        name: 'PoetryWriter',
+        title: 'Poetry Writer Workflow',
+        steps: [
+            { number: 1, prompt: 'Write a {length} poem about {theme} in {style} style' },
+            { number: 2, prompt: 'Add vivid imagery and metaphors related to {theme}' },
+            { number: 3, prompt: 'Ensure the poem follows {style} structure and rhythm' },
+            { number: 4, prompt: 'Add a powerful conclusion that resonates with the {theme}' }
+        ],
+        variables: [
+            { name: 'theme', label: 'Theme', placeholder: 'e.g., nature, love, freedom' },
+            { name: 'style', label: 'Style', placeholder: 'e.g., haiku, sonnet, free verse' },
+            { name: 'length', label: 'Length', placeholder: 'e.g., short, medium, long' }
+        ],
+        timestamp: new Date().toISOString(),
+        source: 'built_in'
+    }
+];
+
+// Load workflows from storage
+async function loadWorkflows() {
+    try {
+        const storageData = await chrome.storage.local.get('workflows');
+        const savedWorkflows = storageData.workflows || [];
+        return [...BUILT_IN_WORKFLOWS, ...savedWorkflows];
+    } catch (error) {
+        return BUILT_IN_WORKFLOWS;
+    }
+}
+
+// Save a new workflow
+async function saveWorkflow(workflowData) {
+    try {
+        const data = await chrome.storage.local.get('workflows');
+        const workflows = data.workflows || [];
+
+        const newWorkflow = {
+            id: 'workflow_' + Date.now(),
+            ...workflowData,
+            timestamp: new Date().toISOString(),
+            source: 'custom'
+        };
+
+        workflows.push(newWorkflow);
+        await chrome.storage.local.set({ workflows });
+        return newWorkflow;
+    } catch (error) {
+        return null;
+    }
+}
+
+// Delete a workflow
+async function deleteWorkflow(workflowId) {
+    try {
+        const data = await chrome.storage.local.get('workflows');
+        const workflows = (data.workflows || []).filter(w => w.id !== workflowId);
+        await chrome.storage.local.set({ workflows });
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+
+// Rename a workflow
+async function renameWorkflow(workflowId, newTitle) {
+    try {
+        const data = await chrome.storage.local.get('workflows');
+        const workflows = data.workflows || [];
+        const workflowIndex = workflows.findIndex(w => w.id === workflowId);
+
+        if (workflowIndex !== -1) {
+            workflows[workflowIndex].title = newTitle;
+            workflows[workflowIndex].timestamp = new Date().toISOString();
+
+            await chrome.storage.local.set({ workflows });
+            return true;
+        }
+        return false;
+    } catch (error) {
+        return false;
+    }
+}
+
+
 // Generate unique session ID
 function getExtensionSessionId() {
     if (!extensionSessionId) {
@@ -1666,2418 +1975,6 @@ function initializeAutocomplete() {
 
     // Periodic re-check (backup for platforms with complex DOM updates)
     setInterval(findAndMonitorInputFields, 2000);
-}
-
-// ========== SAVE CHAT EXCHANGE ==========
-async function saveChatExchange(exchangeData) {
-    // ✅ Check if a chat is starred/active (append mode)
-    if (isChatStarActive && activeChatId) {
-        try {
-            const data = await chrome.storage.local.get('savedChats');
-            const savedChats = data.savedChats || [];
-            const chatIndex = savedChats.findIndex(chat => chat.id === activeChatId);
-            
-            if (chatIndex !== -1) {
-                // Append to existing chat in Q&A format
-                const newExchange = `\n\n---\n\nQ: ${exchangeData.question}\nA: ${exchangeData.answer}`;
-                
-                // Check if the original format is Q&A style or old format
-                const isOldFormat = !savedChats[chatIndex].question.startsWith('Q: ');
-                
-                if (isOldFormat) {
-                    // Convert old format to new Q&A format
-                    savedChats[chatIndex].question = `Q: ${savedChats[chatIndex].question}\nA: ${savedChats[chatIndex].answer}`;
-                    savedChats[chatIndex].answer = ''; // Clear answer field (no longer needed)
-                }
-                
-                // Append new exchange
-                savedChats[chatIndex].question += newExchange;
-                
-                // Update metadata
-                savedChats[chatIndex].date = new Date().toISOString(); // Update timestamp
-                // Keep original chatLink (Option A from before)
-                
-                // Update detection flags
-                savedChats[chatIndex].hasCode = savedChats[chatIndex].hasCode || exchangeData.hasCode;
-                if (exchangeData.language && !savedChats[chatIndex].language) {
-                    savedChats[chatIndex].language = exchangeData.language;
-                }
-                
-                await chrome.storage.local.set({ savedChats });
-
-                return true;
-            }
-        } catch (error) {
-
-            return false;
-        }
-    } else {
-        // Create new chat in Q&A format
-        try {
-            const data = await chrome.storage.local.get('savedChats');
-            const savedChats = data.savedChats || [];
-            
-            // ✅ Format new chats in Q&A style
-            const formattedData = {
-                ...exchangeData,
-                question: `Q: ${exchangeData.question}\nA: ${exchangeData.answer}`,
-                answer: '' // Empty since we're storing both in question field
-            };
-            
-            savedChats.push(formattedData);
-            
-            await chrome.storage.local.set({ savedChats });
-
-            return true;
-        } catch (error) {
-
-            return false;
-        }
-    }
-}
-
-// ========== LOAD SAVED CHATS ==========
-async function loadSavedChats() {
-    try {
-        const data = await chrome.storage.local.get('savedChats');
-        return data.savedChats || [];
-    } catch (error) {
-
-        return [];
-    }
-}
-
-// ========== DELETE SAVED CHAT ==========
-async function deleteSavedChat(chatId) {
-    try {
-        const data = await chrome.storage.local.get('savedChats');
-        const savedChats = (data.savedChats || []).filter(c => c.id !== chatId);
-        await chrome.storage.local.set({ savedChats });
-        return true;
-    } catch (error) {
-
-        return false;
-    }
-}
-
-// ========== RENAME SAVED CHAT ==========
-async function renameSavedChat(chatId, newTitle) {
-    try {
-        const data = await chrome.storage.local.get('savedChats');
-        const savedChats = data.savedChats || [];
-        const chatIndex = savedChats.findIndex(chat => chat.id === chatId);
-        
-        if (chatIndex !== -1) {
-            savedChats[chatIndex].title = newTitle;
-            savedChats[chatIndex].date = new Date().toISOString();
-            await chrome.storage.local.set({ savedChats });
-            return true;
-        }
-        return false;
-    } catch (error) {
-
-        return false;
-    }
-}
-
-
-async function renamePrompt(promptId, newTitle) {
-    try {
-        const data = await chrome.storage.local.get('savedPrompts');
-        const savedPrompts = data.savedPrompts || [];
-        const promptIndex = savedPrompts.findIndex(prompt => prompt.id === promptId);
-        
-        if (promptIndex !== -1) {
-            
-            // ✅ CRITICAL: Only update title, NEVER touch text
-            savedPrompts[promptIndex].title = newTitle;
-            savedPrompts[promptIndex].timestamp = new Date().toISOString();
-            
-            
-            await chrome.storage.local.set({ savedPrompts });
-            return true;
-        }
-        return false;
-    } catch (error) {
-
-        return false;
-    }
-}
-
-function extractConversation() {
-    const platform = detectAIPlatform();
-    let conversation = '';
-    
-    try {
-        switch(platform) {
-            case 'chatgpt':
-                const chatMessages = document.querySelectorAll('[data-message-author-role]');
-                if (chatMessages.length >= 2) {
-                    const lastTwo = Array.from(chatMessages).slice(-2);
-                    conversation = lastTwo.map(msg => {
-                        const role = msg.getAttribute('data-message-author-role');
-                        const text = msg.textContent.trim();
-                        return `${role === 'user' ? 'User' : 'AI'}: ${text}`;
-                    }).join('\n\n');
-                }
-                break;
-                
-            case 'claude':
-                const claudeMessages = document.querySelectorAll('.prose, [data-testid*="message"]');
-                if (claudeMessages.length >= 2) {
-                    const lastTwo = Array.from(claudeMessages).slice(-2);
-                    conversation = lastTwo.map((msg, idx) => {
-                        const role = idx === 0 ? 'User' : 'AI';
-                        return `${role}: ${msg.textContent.trim()}`;
-                    }).join('\n\n');
-                }
-                break;
-                
-            case 'gemini':
-                let geminiMessages = [];
-                
-                const messageElements = document.querySelectorAll(
-                    'message-content[id*="message-content"], ' +
-                    '[id*="model-response-message-content"], ' + 
-                    '.model-response-text, ' +
-                    '.markdown.markdown-main-panel, ' +
-                    '.conversation-container .response-content'
-                );
-                
-                if (messageElements.length > 0) {
-                    geminiMessages = Array.from(messageElements).filter(el => {
-                        const text = el.textContent.trim();
-                        const isSubstantial = text.length > 30 && text.length < 5000;
-                        const isNotSidebar = !el.closest('.side-navigation, .recent-chats, nav');
-                        return isSubstantial && isNotSidebar;
-                    });
-                }
-                
-                if (geminiMessages.length < 2) {
-                    const chatHistory = document.querySelector('#chat-history, .chat-history, .conversation-container');
-                    if (chatHistory) {
-                        const possibleMessages = chatHistory.querySelectorAll(
-                            'div[class*="response"], div[class*="message"], p, .markdown'
-                        );
-                        geminiMessages = Array.from(possibleMessages).filter(el => {
-                            const text = el.textContent.trim();
-                            return text.length > 50 && text.length < 3000 && 
-                                   !el.closest('button, input') &&
-                                   !text.includes('Recent') &&
-                                   !text.includes('New chat') &&
-                                   !text.includes('Search for');
-                        });
-                    }
-                }
-                
-                if (geminiMessages.length < 2) {
-                    const userMessages = document.querySelectorAll('[class*="user"], .user-message, [role="user"]');
-                    const aiMessages = document.querySelectorAll('[class*="model"], [class*="response"], .ai-message');
-                    
-                    if (userMessages.length > 0 && aiMessages.length > 0) {
-                        geminiMessages = [
-                            ...Array.from(userMessages).slice(-1),
-                            ...Array.from(aiMessages).slice(-1)
-                        ];
-                    }
-                }
-                
-                if (geminiMessages.length >= 2) {
-                    const lastTwo = Array.from(geminiMessages).slice(-2);
-                    conversation = lastTwo.map((msg, idx) => {
-                        let text = msg.textContent.trim();
-                        
-                        text = text.replace(/^\s*[\d\w\-]+\s*/, '');
-                        text = text.replace(/\s+/g, ' ');
-                        
-                        const isLikelyUser = text.length < 100 || 
-                                           text.includes('?') ||
-                                           idx === 0 ||
-                                           msg.classList.contains('user') ||
-                                           msg.closest('[class*="user"]');
-                                           
-                        const role = isLikelyUser ? 'User' : 'AI';
-                        
-                        return `${role}: ${text}`;
-                    }).join('\n\n');
-                }
-                break;
-                
-            default:
-                const allTextBlocks = document.querySelectorAll('p, div[class*="message"], div[class*="chat"], div[role="presentation"], [role="article"]');
-                if (allTextBlocks.length > 0) {
-                    const recent = Array.from(allTextBlocks)
-                        .filter(block => {
-                            const text = block.textContent.trim();
-                            return text.length > 20 && text.length < 3000 && 
-                                   !block.querySelector('input, button');
-                        })
-                        .slice(-4);
-                    conversation = recent.map(block => block.textContent.trim()).join('\n\n');
-                }
-        }
-    } catch (error) {
-
-    }
-    
-    return conversation || 'Unable to extract conversation from this page.';
-}
-
-// Enhanced credit checking with container-based warnings
-async function checkCreditsWithWarnings(mode) {
-    try {
-        const requiredCredits = getFeatureCredits(mode);
-        
-        if (requiredCredits === 0) {
-            return { success: true, requiredCredits: 0 };
-        }
-        
-        const isLoggedIn = await BackendAuth.isLoggedIn();
-        if (!isLoggedIn) {
-            return { success: false, message: "Please login to use this feature" };
-        }
-        
-        if (pageCredits === null) {
-            pageCredits = await BackendAuth.getUserCredits();
-        }
-        
-        // ❌ INSUFFICIENT CREDITS - Block action
-        if (pageCredits < requiredCredits) {
-            return { 
-                success: false, 
-                message: `Insufficient credits. This feature requires ${requiredCredits} credits, but you have ${pageCredits}.`,
-                showUpgrade: true
-            };
-        }
-        
-        // ⚠️ LOW CREDIT WARNING - Allow action but warn user
-        const creditsAfterAction = pageCredits - requiredCredits;
-        
-        if (creditsAfterAction <= 5) {
-            return {
-                success: true,
-                requiredCredits: requiredCredits,
-                availableCredits: pageCredits,
-                showWarning: true,
-                warningMessage: creditsAfterAction === 0 ? 
-                    `This will use your final credit! You'll have 0 credits left after this action.` :
-                    `Low credits warning: You'll have ${creditsAfterAction} credits left after this action.`
-            };
-        }
-        
-        // ✅ SUFFICIENT CREDITS - Proceed normally
-        return { 
-            success: true, 
-            requiredCredits: requiredCredits,
-            availableCredits: pageCredits
-        };
-        
-    } catch (error) {
-
-        return { success: true }; // Fallback allows usage
-    }
-}
-
-// Keep the simple wrapper for backward compatibility
-async function checkCredits(mode) {
-    return await checkCreditsWithWarnings(mode);
-}
-
-// Show low credit warning in container
-function showLowCreditWarning(warningMessage, creditsAfter) {
-    // Force show container (same logic as login)
-    const wasHidden = button.style.display === 'none';
-    if (wasHidden) {
-        button.style.display = 'block';
-    }
-    
-    const buttonRect = button.getBoundingClientRect();
-    solthronContainer.style.display = 'block';
-    solthronContainer.style.pointerEvents = 'auto';
-    positionContainer(buttonRect);
-    
-    if (wasHidden) {
-        button.style.display = 'none';
-    }
-    
-    // Show warning view in container
-    closeAllSections();
-    const outputContainer = shadowRoot.querySelector('.output-container');
-    outputContainer.style.display = 'block';
-    
-    // Create warning content
-    outputText.classList.remove('placeholder', 'shimmer-loading');
-    outputText.classList.add('credit-warning');
-    
-    const isLastCredit = creditsAfter === 0;
-    const warningColor = isLastCredit ? '#ff6b6b' : '#ffa500';
-    const warningIcon = isLastCredit ? '🔥' : '⚠️';
-    
-    outputText.innerHTML = `
-        <div style="
-            background: rgba(255, 165, 0, 0.1);
-            border: 1px solid ${warningColor};
-            border-radius: 6px;
-            padding: 12px;
-            margin-bottom: 12px;
-            text-align: center;
-        ">
-            <div style="
-                font-size: 18px;
-                margin-bottom: 8px;
-            ">${warningIcon}</div>
-            <div style="
-                color: ${warningColor};
-                font-weight: 500;
-                font-size: 14px;
-                margin-bottom: 8px;
-            ">${isLastCredit ? 'Final Credit Warning!' : 'Low Credits Warning'}</div>
-            <div style="
-                color: rgba(255, 255, 255, 0.9);
-                font-size: 13px;
-                line-height: 1.4;
-            ">${warningMessage}</div>
-        </div>
-        
-        <div style="
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            margin-top: 12px;
-        ">
-            <button id="proceed-action" style="
-                background: rgba(0, 255, 0, 0.1);
-                border: 1px solid rgba(0, 255, 0, 0.3);
-                color: #00ff00;
-                padding: 8px 12px;
-                border-radius: 5px;
-                cursor: pointer;
-                font-size: 13px;
-                transition: all 0.2s ease;
-            ">Continue with Action</button>
-            
-            <button id="get-credits" style="
-                background: rgba(255, 215, 0, 0.1);
-                border: 1px solid rgba(255, 215, 0, 0.3);
-                color: #ffd700;
-                padding: 8px 12px;
-                border-radius: 5px;
-                cursor: pointer;
-                font-size: 13px;
-                transition: all 0.2s ease;
-            ">Get More Credits</button>
-            
-            <button id="cancel-action" style="
-                background: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                color: rgba(255, 255, 255, 0.8);
-                padding: 6px 12px;
-                border-radius: 5px;
-                cursor: pointer;
-                font-size: 12px;
-                transition: all 0.2s ease;
-            ">Cancel</button>
-        </div>
-    `;
-    
-    // Add event listeners for buttons
-    shadowRoot.getElementById('proceed-action').addEventListener('click', () => {
-        // Close container and proceed with original action
-        solthronContainer.style.display = 'none';
-        solthronContainer.style.pointerEvents = 'none';
-        // Return true to indicate user wants to proceed
-        window.solthronProceedWithLowCredits = true;
-    });
-    
-    shadowRoot.getElementById('get-credits').addEventListener('click', () => {
-        // Open credits purchase page
-        window.open('https://solthron.com/credits', '_blank');
-    });
-    
-    shadowRoot.getElementById('cancel-action').addEventListener('click', () => {
-        // Close container and cancel action
-        solthronContainer.style.display = 'none';
-        solthronContainer.style.pointerEvents = 'none';
-        window.solthronProceedWithLowCredits = false;
-    });
-}
-
-// Display functions
-function displaySmartFollowups(data) {
-    hideShimmerLoading();
-    outputText.classList.remove('placeholder', 'error');
-    
-    const platform = detectAIPlatform();
-    const platformName = platform.charAt(0).toUpperCase() + platform.slice(1);
-    
-    let html = '<div class="smart-followups-container">';
-    
-    if (platform !== 'unknown') {
-        html += `
-            <div class="platform-indicator">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <path d="M12 6v6l4 2"></path>
-                </svg>
-                <span>Analyzing ${platformName} conversation</span>
-            </div>
-        `;
-    }
-    
-    if (data.analysis) {
-        html += `<div class="analysis-insight">${data.analysis}</div>`;
-    }
-    
-    data.questions.forEach((question, index) => {
-        html += `
-            <div class="followup-card">
-                <div class="followup-question">${question.text}</div>
-                <button class="followup-copy-btn" data-question="${question.text.replace(/"/g, '&quot;')}">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-                        <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
-                    </svg>
-                </button>
-            </div>
-        `;
-    });
-    
-    html += '</div>';
-    outputText.innerHTML = html;
-    
-    shadowRoot.querySelectorAll('.followup-copy-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            const question = btn.dataset.question;
-            try {
-                await navigator.clipboard.writeText(question);
-                btn.classList.add('copied');
-                
-                btn.innerHTML = `
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
-                `;
-                
-                setTimeout(() => {
-                    btn.classList.remove('copied');
-                    btn.innerHTML = `
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-                            <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
-                        </svg>
-                    `;
-                }, 2000);
-            } catch (err) {
-
-            }
-        });
-    });
-}
-
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-
-function showError(message) {
-    hideShimmerLoading();
-    outputText.classList.add('error');
-    outputText.textContent = message;
-}
-
-function updateOutput(text) {
-    hideShimmerLoading();
-    outputText.classList.remove('placeholder');
-    outputText.textContent = text;
-}
-
-function isImage(element) {
-    return element.tagName === 'IMG' && element.src;
-}
-
-async function processSelectedText(text) {
-    if (!text.trim()) return;
-
-    const buttonRect = button.getBoundingClientRect();
-    solthronContainer.style.display = 'block';
-    solthronContainer.style.pointerEvents = 'auto';
-    positionContainer(buttonRect);
-
-    // Note: save_prompt removed - use Alt+S keyboard shortcut instead
-
-    // ✅ Show loading animation only for processing features
-    showShimmerLoading('Processing...');
-
-    if (selectedMode.startsWith('image_')) return;
-
-    const creditCheck = await checkCredits(selectedMode);
-    if (!creditCheck.success) {
-        showError(creditCheck.message || "Please check your account status.");
-        return;
-    }
-
-    handleTextProcessing(text);
-}
-
-async function handleTextProcessing(text) {
-    // ✅ FIXED: Ensure proper view state when processing
-    const galleryView = shadowRoot.getElementById('gallery-view');
-    const outputContainer = shadowRoot.querySelector('.output-container');
-    
-    if (galleryView.style.display === 'block') {
-        closeAllSections(); // This will show output container
-    }
-
-    showShimmerLoading('Processing...');
-
-    try {
-        const response = await new Promise((resolve, reject) => {
-            chrome.runtime.sendMessage({
-                type: 'enhance_text',
-                data: {
-                    topic: text,
-                    tone: 'professional',
-                    length: 'balanced',
-                    mode: selectedMode
-                }
-            }, response => {
-                if (chrome.runtime.lastError) {
-                    reject(chrome.runtime.lastError);
-                } else {
-                    resolve(response);
-                }
-            });
-        });
-
-        if (response && response.success) {
-            let formattedOutput = response.data.prompt;
-            updateOutput(formattedOutput);
-            solthronContainer.style.display = 'block';
-
-            // Track feature usage
-            trackAnalyticsEvent('feature_used', {
-                mode: selectedMode,
-                timestamp: new Date().toISOString()
-            });
-        } else {
-            showError('Failed to process text');
-            trackAnalyticsEvent('error_occurred', {
-                error_type: 'feature_failed',
-                mode: selectedMode
-            }, 'Failed to process text');
-        }
-    } catch (error) {
-        showError('Error processing text');
-        trackAnalyticsEvent('error_occurred', {
-            error_type: 'feature_exception',
-            mode: selectedMode
-        }, error.message);
-    } finally {
-        button.querySelector('.solthron-button').textContent = '➤';
-    }
-}
-
-// ✨ CREATE SHADOW DOM AND UI
-function createUI() {
-    // Create shadow host
-    const shadowHost = document.createElement('div');
-    shadowHost.id = 'solthron-shadow-host';
-    shadowHost.style.cssText = `
-        position: fixed !important;
-        top: 0 !important;
-        left: 0 !important;
-        width: 0 !important;
-        height: 0 !important;
-        z-index: 2147483647 !important;
-        pointer-events: none !important;
-    `;
-    
-    document.body.appendChild(shadowHost);
-    
-    // Create shadow root
-    shadowRoot = shadowHost.attachShadow({ mode: 'open' });
-
-    // ✅ ADD THIS CODE HERE:
-    // Allow context menu events to propagate within shadow DOM
-    shadowRoot.addEventListener('contextmenu', (e) => {
-        // Allow context menu inside gallery items
-        if (e.target.closest('.gallery-item')) {
-            // Let the event reach the item's contextmenu handler
-            return true;
-        }
-    }, true);// Use capture phase
-    
-    // CSS styles (completely isolated in shadow DOM)
-    const styles = `
-        <style>
-        /* ✅ ISOLATED CSS - Won't affect the host page */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: Arial, sans-serif !important;
-            line-height: normal;
-            letter-spacing: normal;
-            text-transform: none;
-            text-shadow: none !important;
-        }
-
-        #solthron-floating-button {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            z-index: 10000;
-            pointer-events: auto;
-        }
-
-        .solthron-button {
-            width: 48px;
-            height: 48px;
-            border-radius: 50%;
-            background: #ffff00;
-            border: none;
-            cursor: pointer;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2), 0 0 20px rgba(255, 255, 0, 0.3);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 26px;
-            font-weight: 900;
-            color: #000000;
-            line-height: 1;
-            padding: 0;
-            transform: translateY(-1px);
-        }
-
-        .solthron-button:hover {
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2), 0 0 25px rgba(255, 255, 0, 0.4);
-        }
-
-        .solthron-button.minimized {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            animation: softBlink 2s ease-in-out infinite;
-        }
-
-        .solthron-button.minimized:hover {
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2), 0 0 30px rgba(102, 126, 234, 0.6);
-        }
-
-        @keyframes softBlink {
-            0%, 100% {
-                opacity: 1;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.2), 0 0 20px rgba(102, 126, 234, 0.5);
-            }
-            50% {
-                opacity: 0.7;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.2), 0 0 35px rgba(102, 126, 234, 0.8);
-            }
-        }
-
-        .solthron-container {
-            position: fixed;
-            width: 320px;
-            background: #1a1a1a;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-            z-index: 10000;
-            pointer-events: auto;
-            display: none;
-            overflow: hidden;
-        }
-
-        .solthron-content {
-            padding: 12px;
-            position: relative;
-        }
-
-        .solthron-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-
-        .mode-dropdown {
-            position: relative;
-            flex: 1;
-            margin-right: 12px;
-        }
-
-        .mode-select {
-            width: 100%;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 6px;
-            color: rgba(255, 255, 255, 0.9);
-            font-size: 13px !important;
-            padding: 6px 8px;
-            cursor: pointer;
-            -webkit-appearance: none;
-            padding-right: 24px;
-            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-            background-repeat: no-repeat;
-            background-position: right 8px center;
-            background-size: 12px;
-            max-height: 100px;
-            overflow-y: auto;
-        }
-
-        .mode-select::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        .mode-select::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 3px;
-        }
-
-        .mode-select::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 3px;
-        }
-
-        .mode-select::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-
-        .mode-select:hover {
-            background-color: rgba(255, 255, 255, 0.15);
-            border-color: rgba(255, 255, 255, 0.3);
-        }
-
-        .mode-select:focus {
-            outline: none;
-            border-color: rgba(255, 255, 0, 0.5);
-            box-shadow: 0 0 0 2px rgba(255, 255, 0, 0.2);
-        }
-
-        .mode-select option {
-            background-color: #2a2a2a !important;
-            color: rgba(255, 255, 255, 0.9);
-            padding: 8px;
-            font-size: 13px !important;
-        }
-
-        .mode-select optgroup {
-            background: #2a2a2a;
-            color: rgba(255, 255, 255, 0.6);
-            font-size: 12px !important;
-            font-weight: 500;
-            padding: 8px 4px;
-        }
-
-        .mode-select optgroup option {
-            background: #2a2a2a;
-            color: rgba(255, 255, 255, 0.9);
-            font-size: 13px !important;
-            padding: 8px 12px;
-            margin-left: 8px;
-        }
-
-        .header-icons {
-            display: flex;
-            gap: 4px;
-        }
-
-        .icon-button {
-            background: none;
-            border: none;
-            padding: 4px;
-            cursor: pointer;
-            color: #fff;
-            opacity: 0.7;
-            transition: opacity 0.2s;
-        }
-
-        .icon-button:hover {
-            opacity: 1;
-        }
-
-        .output-container {
-            position: relative;
-        }
-
-        .output-text {
-            background: #2a2a2a;
-            color: #fff !important;
-            padding: 12px;
-            border-radius: 6px;
-            min-height: 60px;
-            max-height: 150px;
-            line-height: 1.4 !important;
-            font-size: 13px !important;
-            overflow-y: auto;
-            white-space: pre-wrap;
-        }
-
-        .output-text.placeholder {
-            color: rgba(255, 255, 255, 0.4) !important;
-            font-style: italic;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-        }
-
-        .output-text.error {
-            color: #ff6b6b;
-            border: 1px solid rgba(255, 107, 107, 0.3);
-        }
-        
-        .output-text.credit-warning {
-    background: #2a2a2a;
-    color: #fff;
-    border: none;
-}
-
-.output-text.credit-warning button:hover {
-    transform: translateY(-1px);
-}
-
-.output-text.credit-warning #proceed-action:hover {
-    background: rgba(0, 255, 0, 0.2) !important;
-    border-color: rgba(0, 255, 0, 0.5) !important;
-}
-
-.output-text.credit-warning #get-credits:hover {
-    background: rgba(255, 215, 0, 0.2) !important;
-    border-color: rgba(255, 215, 0, 0.5) !important;
-}
-
-.output-text.credit-warning #cancel-action:hover {
-    background: rgba(255, 255, 255, 0.1) !important;
-    border-color: rgba(255, 255, 255, 0.3) !important;
-}
-
-        .output-text::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        .output-text::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 3px;
-        }
-
-        .output-text::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 3px;
-        }
-
-        .output-text::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-
-        /* Loading Bar Effect */
-        .output-text.shimmer-loading {
-            background: #2a2a2a !important;
-            color: rgba(255, 255, 255, 0.8) !important;
-            position: relative;
-            padding-bottom: 20px !important;
-        }
-
-        .output-text.shimmer-loading::after {
-            content: '';
-            position: absolute;
-            bottom: 8px;
-            left: 12px;
-            right: 12px;
-            height: 3px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 2px;
-            overflow: hidden;
-        }
-
-        .output-text.shimmer-loading::before {
-            content: '';
-            position: absolute;
-            bottom: 8px;
-            left: 12px;
-            height: 3px;
-            width: 30%;
-            background: linear-gradient(
-                90deg,
-                transparent 0%,
-                #ffff00 30%,
-                #fff700 70%,
-                transparent 100%
-            );
-            border-radius: 2px;
-            animation: loading-sweep 1.5s infinite linear;
-            z-index: 1;
-            will-change: transform;
-        }
-
-        @keyframes loading-sweep {
-            0% {
-                transform: translateX(-100%);
-            }
-            100% {
-                transform: translateX(300%);
-            }
-        }
-
-        /* Double-Click Animation */
-        .solthron-button.double-click-activated {
-            animation: 
-                solthronBounce 0.6s ease-out,
-                solthronGlow 0.6s ease-out;
-        }
-
-        @keyframes solthronBounce {
-            0% { transform: scale(1) translateY(-1px); }
-            15% { transform: scale(0.85) translateY(-1px); }
-            35% { transform: scale(1.25) translateY(-1px); }
-            55% { transform: scale(0.95) translateY(-1px); }
-            75% { transform: scale(1.05) translateY(-1px); }
-            100% { transform: scale(1) translateY(-1px); }
-        }
-
-        @keyframes solthronGlow {
-            0% { 
-                box-shadow: 
-                    0 2px 5px rgba(0,0,0,0.2), 
-                    0 0 20px rgba(255, 255, 0, 0.3),
-                    0 0 0 0 rgba(255, 255, 0, 0.3);
-            }
-            40% {
-                box-shadow: 
-                    0 2px 5px rgba(0,0,0,0.2), 
-                    0 0 25px rgba(255, 255, 0, 0.4),
-                    0 0 0 8px rgba(255, 255, 0, 0.2);
-            }
-            70% { 
-                box-shadow: 
-                    0 2px 5px rgba(0,0,0,0.2), 
-                    0 0 30px rgba(255, 255, 0, 0.5),
-                    0 0 0 15px rgba(255, 255, 0, 0);
-            }
-            100% { 
-                box-shadow: 
-                    0 2px 5px rgba(0,0,0,0.2), 
-                    0 0 20px rgba(255, 255, 0, 0.3),
-                    0 0 0 0 rgba(255, 255, 0, 0);
-            }
-        }
-
-
-        /* Gallery Styles */
-        .gallery-view {
-            background: #2a2a2a;
-            border-radius: 6px;
-            margin-top: 12px;
-        }
-
-        .gallery-header {
-            padding: 12px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .gallery-header h3 {
-            color: rgba(255, 255, 255, 0.9);
-            font-size: 14px !important;
-            font-weight: 500;
-            margin-bottom: 8px;
-        }
-
-        .gallery-search input {
-            width: 100%;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 4px;
-            padding: 6px 8px;
-            color: white;
-            font-size: 12px !important;
-        }
-
-        .gallery-search input:focus {
-            outline: none;
-            border-color: rgba(255, 255, 255, 0.5);
-            box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
-        }
-
-        .gallery-list {
-            max-height: 153px;
-            overflow-y: auto;
-            padding: 8px;
-        }
-
-        .gallery-item {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 4px;
-            padding: 6px 8px;
-            margin-bottom: 8px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 8px;
-            height: 45px;
-            overflow: hidden;
-        }
-
-        .gallery-item:hover {
-            background: rgba(255, 255, 255, 0.1);
-            border-color: rgba(255, 255, 255, 0.2);
-        }
-
-        .gallery-item-text {
-            color: rgba(255, 255, 255, 0.8);
-            font-size: 11px !important;
-            line-height: 1.2;
-            flex: 1;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .gallery-item-actions {
-            display: flex;
-            gap: 4px;
-            opacity: 0;
-            transition: opacity 0.2s ease;
-        }
-
-        .gallery-item:hover .gallery-item-actions {
-            opacity: 1;
-        }
-
-        .gallery-copy-btn,
-        .gallery-delete-btn,
-        .gallery-star-btn {
-            background: none;
-            border: none;
-            padding: 4px;
-            cursor: pointer;
-            color: rgba(255, 255, 255, 0.6);
-            transition: all 0.2s ease;
-        }
-
-        .gallery-star-btn:hover {
-            color: rgba(255, 255, 255, 0.9);
-        }
-
-        .gallery-star-btn.active {
-            color: #ffff00;
-        }
-
-        .gallery-star-btn.active svg {
-            filter: drop-shadow(0 0 2px rgba(255, 255, 0, 0.5));
-        }
-           
-        .gallery-star-btn.active svg {
-            filter: drop-shadow(0 0 2px rgba(255, 255, 0, 0.5));
-        }
-
-        .gallery-rename-btn {
-            background: none;
-            border: none;
-            padding: 4px;
-            cursor: pointer;
-            color: rgba(255, 255, 255, 0.6);
-            transition: all 0.2s ease;
-        }
-
-        .gallery-rename-btn:hover {
-            color: rgba(255, 215, 0, 0.9);
-        }
-
-        .gallery-copy-btn,
-        .gallery-delete-btn,
-
-        .gallery-copy-btn:hover,
-        .gallery-delete-btn:hover {
-            color: rgba(255, 255, 255, 0.9);
-        }
-
-        .gallery-delete-btn:hover {
-            color: #ff6b6b;
-        }
-
-        .gallery-copy-btn.copied {
-            color: #00ff00;
-        }
-
-        .gallery-list::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        .gallery-list::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 3px;
-        }
-
-        .gallery-list::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 3px;
-        }
-
-        .gallery-list::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-
-        /* Category Selection */
-        .category-selection {
-            padding: 16px;
-            margin-bottom: 8px;
-        }
-
-        .category-item {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            padding: 10px;
-            margin-bottom: 12px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        .category-item:hover {
-            background: rgba(255, 255, 255, 0.1);
-            border-color: rgba(255, 255, 255, 0.2);
-            transform: translateY(-1px);
-        }
-
-        .category-title {
-            color: rgba(255, 255, 255, 0.9);
-            font-size: 14px !important;
-            font-weight: 500;
-            text-align: center;
-        }
-
-        .category-description {
-            color: rgba(255, 255, 255, 0.5);
-            font-size: 11px;
-            text-align: center;
-            margin-top: 4px;
-        }
-
-        .gallery-title-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
-            gap: 8px;
-        }
-
-        .back-to-categories {
-            background: none;
-            border: none;
-            padding: 4px;
-            cursor: pointer;
-            color: rgba(255, 255, 255, 0.7);
-            transition: color 0.2s ease;
-        }
-
-        .back-to-categories:hover {
-            color: rgba(255, 255, 255, 0.9);
-        }
-
-        #gallery-content {
-            transition: opacity 0.2s ease;
-        }
-
-        #gallery-content.hiding {
-            opacity: 0;
-        }
-
-        #gallery-content.showing {
-            opacity: 1;
-        }
-
-        #gallery-btn svg {
-            transition: stroke 0.2s ease;
-        }
-
-        #gallery-btn.active svg {
-            stroke: #00ff00;
-        }
-
-        /* Profile Styles */
-        .profile-view {
-            background: #2a2a2a;
-            border-radius: 6px;
-            margin-top: 12px;
-            max-height: 350px;
-            overflow-y: auto;
-        }
-
-        .profile-header {
-            padding: 12px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .profile-header h3 {
-            color: rgba(255, 255, 255, 0.9);
-            font-size: 14px;
-            font-weight: 500;
-            margin: 0;
-        }
-
-        .close-profile {
-            background: none;
-            border: none;
-            color: rgba(255, 255, 255, 0.7);
-            cursor: pointer;
-            padding: 4px;
-        }
-
-        .profile-details {
-            padding: 16px;
-        }
-
-        .loading-profile {
-            color: rgba(255, 255, 255, 0.6);
-            text-align: center;
-            padding: 20px 0;
-            font-style: italic;
-        }
-
-        .profile-info {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .profile-field {
-            display: flex;
-            flex-direction: column;
-            padding-bottom: 12px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        .field-label {
-            color: rgba(255, 255, 255, 0.6);
-            font-size: 12px;
-            margin-bottom: 4px;
-        }
-
-        .field-value {
-            color: rgba(255, 255, 255, 0.9);
-            font-size: 14px;
-        }
-
-        .profile-field.credits {
-            margin-top: 8px;
-        }
-
-        .credits .field-value {
-            color: #ffff00;
-            font-weight: 500;
-            font-size: 16px;
-        }
-
-        .field-value-with-button {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-        }
-
-        .buy-credits-btn {
-    background: #2a2a2a;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: white;
-    padding: 6px 12px;
-    border-radius: 4px;
-    font-size: 11px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    white-space: nowrap;
-    box-shadow: 
-        0 2px 4px rgba(0, 0, 0, 0.3),
-        inset 0 1px 0 rgba(255, 255, 255, 0.1);
-    position: relative;
-}
-
-.buy-credits-btn:hover {
-    background: #333333;
-    border-color: rgba(255, 255, 255, 0.3);
-    box-shadow: 
-        0 3px 6px rgba(0, 0, 0, 0.4),
-        inset 0 1px 0 rgba(255, 255, 255, 0.15);
-    transform: translateY(-1px);
-}
-
-.buy-credits-btn:active {
-    transform: translateY(0px);
-    box-shadow: 
-        0 1px 2px rgba(0, 0, 0, 0.2),
-        inset 0 1px 0 rgba(255, 255, 255, 0.05);
-}
-
-        .login-prompt {
-            text-align: center;
-            padding: 20px 0;
-        }
-
-        .login-button, .logout-button {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 4px;
-            color: rgba(255, 255, 255, 0.9);
-            padding: 8px 16px;
-            margin-top: 10px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            width: 100%;
-        }
-
-        .login-button:hover, .logout-button:hover {
-            background: rgba(255, 255, 255, 0.15);
-        }
-         
-        /* Google Auth Buttons */
-        .google-auth-button {
-            background: #ffffff;
-            color: #424242;
-            border: 1px solid #dadce0;
-            border-radius: 8px;
-            padding: 12px 16px;
-            width: 100%;
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            font-family: inherit;
-        }
-
-        .google-auth-button:hover {
-            background: #f8f9fa;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-            transform: translateY(-1px);
-        }
-
-        .google-auth-button:active {
-            transform: translateY(0);
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-
-        /* Fallback Login Button */
-        .fallback-login-button {
-            background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 6px;
-            color: rgba(255, 255, 255, 0.9);
-            padding: 10px 16px;
-            width: 100%;
-            font-size: 13px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            font-family: inherit;
-        }
-
-        .fallback-login-button:hover {
-            background: rgba(255, 255, 255, 0.12);
-            border-color: rgba(255, 255, 255, 0.3);
-        }
-
-        .logout-button {
-            margin-top: 20px;
-        }
-
-        .login-form {
-            padding: 10px;
-        }
-
-        .form-group {
-            margin-bottom: 12px;
-        }
-
-        .form-group label {
-            display: block;
-            color: rgba(255, 255, 255, 0.8);
-            font-size: 12px;
-            margin-bottom: 4px;
-        }
-
-        .form-group input {
-            width: 100%;
-            padding: 8px;
-            border-radius: 4px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            background: rgba(255, 255, 255, 0.1);
-            color: white;
-            font-size: 13px;
-        }
-
-        .form-group input:focus {
-            outline: none;
-            border-color: rgba(255, 255, 255, 0.5);
-            box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
-        }
-
-        .form-actions {
-            margin-top: 15px;
-        }
-
-        .login-button {
-            background: #3c78d8;
-            border: none;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 13px;
-            transition: background 0.2s ease;
-            width: 100%;
-        }
-
-        .login-button:hover {
-            background: #4285f4;
-        }
-
-        .error-message {
-            color: #ff6b6b;
-            font-size: 12px;
-            margin-top: 8px;
-            min-height: 16px;
-        }
-
-        .signup-link {
-            margin-top: 15px;
-            text-align: center;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-            padding-top: 12px;
-        }
-
-        .signup-link p {
-            color: rgba(255, 255, 255, 0.6);
-            font-size: 12px;
-            margin-bottom: 5px;
-        }
-
-        .signup-link a {
-            color: #3c78d8;
-            text-decoration: none;
-            font-size: 12px;
-            font-weight: 500;
-        }
-
-        .signup-link a:hover {
-            text-decoration: underline;
-        }
-
-        .workflow-container::-webkit-scrollbar {
-    width: 6px;
-}
-
-.workflow-container::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 3px;
-}
-
-.workflow-container::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 3px;
-}
-
-.workflow-container::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.3);
-}
-
-/* Workflow Step Bubbles */
-.workflow-step-bubble {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 6px;
-    padding: 10px;
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    transition: all 0.2s ease;
-    cursor: pointer;
-}
-
-.workflow-step-bubble:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.25);
-}
-
-.workflow-step-bubble .step-content {
-    flex: 1;
-    color: rgba(255, 255, 255, 0.9);
-    font-size: 12px;
-    line-height: 1.5;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-}
-
-/* Workflow Execution Styles */
-.workflow-execution-header {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 6px;
-    padding: 12px;
-    margin-bottom: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.workflow-header-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.workflow-controls {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-}
-
-.workflow-close-btn {
-    background: rgba(0, 0, 0, 0.6);
-    border: 1px solid rgba(255, 50, 50, 0.8);
-    color: rgba(255, 50, 50, 0.95);
-    padding: 4px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    height: 22px;
-    width: 22px;
-    flex-shrink: 0;
-}
-
-.workflow-close-btn:hover {
-    background: rgba(0, 0, 0, 0.7);
-    border-color: rgba(255, 50, 50, 1);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(255, 50, 50, 0.3);
-}
-
-.run-all-btn {
-    background: rgba(0, 0, 0, 0.6);
-    border: 1px solid rgba(175, 255, 0, 0.8);
-    color: rgba(175, 255, 0, 0.95);
-    padding: 6px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 10px;
-    font-weight: 500;
-    transition: all 0.2s ease;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-    height: 22px;
-    line-height: 1;
-}
-
-.run-all-btn:hover:not(:disabled) {
-    background: rgba(0, 0, 0, 0.7);
-    border-color: rgba(175, 255, 0, 1);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(175, 255, 0, 0.3);
-}
-
-.run-all-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.pause-btn,
-.stop-btn {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: rgba(255, 255, 255, 0.8);
-    padding: 6px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 10px;
-    font-weight: 500;
-    transition: all 0.2s ease;
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    height: 22px;
-    line-height: 1;
-}
-
-.pause-btn:hover {
-    background: rgba(255, 200, 0, 0.15);
-    border-color: rgba(255, 200, 0, 0.3);
-    color: rgba(255, 200, 0, 0.95);
-}
-
-.stop-btn:hover {
-    background: rgba(255, 100, 100, 0.15);
-    border-color: rgba(255, 100, 100, 0.3);
-    color: rgba(255, 100, 100, 0.95);
-}
-
-.workflow-progress {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.progress-text {
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 11px;
-    font-weight: 500;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.progress-bar-container {
-    width: 100%;
-    height: 6px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 3px;
-    overflow: hidden;
-}
-
-.progress-bar {
-    height: 100%;
-    background: linear-gradient(90deg, rgba(0, 255, 0, 0.6), rgba(0, 200, 0, 0.8));
-    border-radius: 3px;
-    transition: width 0.3s ease;
-    box-shadow: 0 0 10px rgba(0, 255, 0, 0.4);
-}
-
-/* Step Status Indicators */
-.workflow-step-bubble.step-pending {
-    opacity: 0.6;
-}
-
-.workflow-step-bubble.step-running {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.4);
-    box-shadow: 0 0 12px rgba(255, 255, 255, 0.2);
-    animation: pulse 2s ease-in-out infinite;
-}
-
-.workflow-step-bubble.step-paused {
-    background: rgba(255, 165, 0, 0.1);
-    border-color: rgba(255, 165, 0, 0.5);
-    box-shadow: 0 0 8px rgba(255, 165, 0, 0.3);
-}
-
-.workflow-step-bubble.step-completed {
-    background: transparent;
-    border-color: rgba(175, 255, 0, 0.8);
-    box-shadow: 0 0 8px rgba(175, 255, 0, 0.2);
-}
-
-.workflow-step-bubble.step-error {
-    background: rgba(255, 100, 100, 0.08);
-    border-color: rgba(255, 100, 100, 0.4);
-}
-
-.workflow-step-bubble.step-skipped {
-    opacity: 0.4;
-    background: rgba(128, 128, 128, 0.05);
-    border-color: rgba(128, 128, 128, 0.2);
-}
-
-.step-status-icon {
-    width: 16px;
-    height: 16px;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.step-status-icon svg {
-    width: 100%;
-    height: 100%;
-}
-
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.7; }
-}
-
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-}
-
-.workflow-step-bubble .step-time {
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.5);
-    margin-left: auto;
-    flex-shrink: 0;
-}
-
-        /* Smart Followups & Actions */
-        .smart-followups-container,
-        .smart-actions-container {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            padding: 4px;
-            max-height: 100%;
-            overflow-y: auto;
-        }
-
-        .followup-card,
-        .action-card {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            padding: 12px;
-            position: relative;
-            transition: all 0.2s ease;
-            min-height: 50px;
-            display: flex;
-            align-items: center;
-        }
-
-        .followup-card:hover,
-        .action-card:hover {
-            background: rgba(255, 255, 255, 0.08);
-            border-color: rgba(255, 255, 0, 0.3);
-            transform: translateY(-1px);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-        }
-
-        .followup-question,
-        .action-prompt {
-            color: rgba(255, 255, 255, 0.9);
-            font-size: 13px !important;
-            line-height: 1.4;
-            padding-right: 36px;
-            flex: 1;
-        }
-
-        .followup-copy-btn,
-        .action-copy-btn {
-            position: absolute;
-            top: 50%;
-            right: 12px;
-            transform: translateY(-50%);
-            background: none;
-            border: none;
-            padding: 4px;
-            cursor: pointer;
-            color: rgba(255, 255, 255, 0.5);
-            transition: all 0.2s ease;
-        }
-
-        .followup-copy-btn:hover,
-        .action-copy-btn:hover {
-            color: rgba(255, 255, 255, 0.8);
-        }
-
-        .followup-copy-btn.copied,
-        .action-copy-btn.copied {
-            color: #00ff00;
-        }
-
-        .followup-copy-btn.copied svg,
-        .action-copy-btn.copied svg {
-            filter: drop-shadow(0 0 3px rgba(0, 255, 0, 0.5));
-        }
-
-        .analysis-insight {
-            background: rgba(255, 255, 0, 0.1);
-            border: 1px solid rgba(255, 255, 0, 0.2);
-            border-radius: 6px;
-            padding: 10px;
-            margin-bottom: 8px;
-            color: rgba(255, 255, 255, 0.8);
-            font-size: 12px !important;
-            font-style: italic;
-            line-height: 1.4;
-        }
-
-        .platform-indicator {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            margin-bottom: 8px;
-            padding: 6px 10px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 4px;
-            font-size: 11px !important;
-            color: rgba(255, 255, 255, 0.6);
-        }
-
-        .platform-indicator svg {
-            width: 14px;
-            height: 14px;
-        }
-
-        /* Scrollbar styles for smart followups/actions */
-        .smart-followups-container::-webkit-scrollbar,
-        .smart-actions-container::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        .smart-followups-container::-webkit-scrollbar-track,
-        .smart-actions-container::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 3px;
-        }
-
-        .smart-followups-container::-webkit-scrollbar-thumb,
-        .smart-actions-container::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 3px;
-        }
-
-        .smart-followups-container::-webkit-scrollbar-thumb:hover,
-        .smart-actions-container::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-
-        /* Smart Enhancements */
-
-        /* Animation */
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-        
-        .spinning {
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        @keyframes bounce {
-    0%, 80%, 100% {
-        transform: translateY(0) scale(1);
-        opacity: 1;
-    }
-    40% {
-        transform: translateY(-6px) scale(1.2);
-        opacity: 0.7;
-    }
-}
-
-        @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-}
-
-        /* Responsive */
-        @media screen and (max-width: 480px) {
-            .solthron-container {
-                width: 90vw;
-                max-width: 320px;
-            }
-        }
-        </style>
-    `;
-    
-    // HTML content
-    const htmlContent = `
-        <div id="solthron-floating-button">
-            <button class="solthron-button">➤</button>
-        </div>
-        
-        <div id="solthron-container" class="solthron-container" style="display: none;">
-            <div class="solthron-content"> 
-                <div class="solthron-header">
-                    <div class="mode-dropdown">
-                        <select class="mode-select">
-                            <option value="select_mode">Select Mode</option>
-                            <optgroup label="Image">
-                                <option value="image_prompt">Image to Prompt</option>
-                            </optgroup>
-                            <optgroup label="AI Assistant">
-                                <option value="smart_followups">Smart Follow-ups</option>
-                            </optgroup>
-                        </select>
-                    </div>
-                    <div class="header-icons">
-                        <button id="profile-btn" class="icon-button">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                                <circle cx="12" cy="7" r="4"></circle>
-                            </svg>
-                        </button>
-                        <button id="gallery-btn" class="icon-button">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <rect x="3" y="3" width="7" height="7"></rect>
-                                <rect x="14" y="3" width="7" height="7"></rect>
-                                <rect x="14" y="14" width="7" height="7"></rect>
-                                <rect x="3" y="14" width="7" height="7"></rect>
-                            </svg>
-                        </button>
-                        <button id="copy-btn" class="icon-button">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-                                <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
-                            </svg>
-                        </button>
-                        <button id="minimize-btn" class="icon-button" style="display: none;">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <line x1="5" y1="12" x2="19" y2="12"></line>
-                            </svg>
-                        </button>
-                        <button id="close-btn" class="icon-button">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <line x1="18" y1="6" x2="6" y2="18"></line>
-                                <line x1="6" y1="6" x2="18" y2="18"></line>
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-                <div class="output-container">
-                    <div id="output-text" class="output-text placeholder">
-                        Please highlight text or right-click an image to begin...
-                    </div>
-                </div>
-                <div id="gallery-view" class="gallery-view" style="display: none;">
-                <div id="category-selection" class="category-selection">
-                       <div class="category-item" data-category="prompts">
-                       <div class="category-title">Prompts</div>
-                </div>
-                <div class="category-item" data-category="chats">
-                <div class="category-title">Saved Chats</div>
-                </div>
-                <div class="category-item" data-category="workflows">
-                       <div class="category-title">Workflows</div>
-                    </div>
-                </div>
-                    <!-- Workflow Subcategory Selection -->
-                    <div id="workflow-subcategory-selection" class="category-selection" style="display: none;">
-                        <div class="gallery-header">
-                            <div class="gallery-title-row">
-                                <h3 id="workflow-subcategory-title">Workflows</h3>
-                                <button class="back-to-categories">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <path d="M19 12H5"/>
-                                        <path d="M12 19l-7-7 7-7"/>
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="category-item" data-workflow-type="templates">
-                            <div class="category-title">Templates</div>
-                            <div class="category-description">Pre-built workflow templates</div>
-                        </div>
-                        <div class="category-item" data-workflow-type="custom">
-                            <div class="category-title">Custom</div>
-                            <div class="category-description">Your custom workflows</div>
-                        </div>
-                    </div>
-                    <div id="gallery-content" style="display: none;">
-                        <div class="gallery-header">
-                            <div class="gallery-title-row">
-                                <h3 id="gallery-title">Saved Items</h3>
-                                <button class="back-to-categories" id="back-from-gallery">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <path d="M19 12H5"/>
-                                        <path d="M12 19l-7-7 7-7"/>
-                                    </svg>
-                                </button>
-                            </div>
-                            <div class="gallery-search">
-                                <input type="text" placeholder="Search..." id="gallery-search">
-                            </div>
-                        </div>
-                        <div class="gallery-list" id="gallery-list"></div>
-                    </div>
-                </div>
-                <div id="profile-view" class="profile-view" style="display: none;">
-                    <div class="profile-header">
-                        <h3>Account</h3>
-                        <button class="close-profile">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <line x1="18" y1="6" x2="6" y2="18"></line>
-                                <line x1="6" y1="6" x2="18" y2="18"></line>
-                            </svg>
-                        </button>
-                    </div>
-                    <div id="login-container" class="login-form">
-    <!-- Login View -->
-    <div id="login-view" class="auth-prompt">
-        <p style="color: rgba(255, 255, 255, 0.8); text-align: center; margin-bottom: 20px; font-size: 14px;">Login to access premium features and credit management</p>
-        
-        <button id="google-login-btn" class="google-auth-button" style="margin-bottom: 16px;">
-            <svg width="18" height="18" viewBox="0 0 24 24" style="margin-right: 10px;">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-            </svg>
-            Login with Google
-        </button>
-        
-        <!-- Divider -->
-        <div style="display: flex; align-items: center; margin: 16px 0; opacity: 0.6;">
-            <div style="flex: 1; height: 1px; background: rgba(255, 255, 255, 0.2);"></div>
-            <span style="padding: 0 12px; color: rgba(255, 255, 255, 0.5); font-size: 12px;">or</span>
-            <div style="flex: 1; height: 1px; background: rgba(255, 255, 255, 0.2);"></div>
-        </div>
-        
-        <button id="login-button" class="fallback-login-button">Login via Solthron.com</button>
-        
-        <div style="text-align: center; margin-top: 12px;">
-            <span style="color: rgba(255, 255, 255, 0.6); font-size: 13px;">Don't have an account? </span>
-            <a href="#" id="show-signup" style="color: #4285F4; text-decoration: none; font-size: 13px;">Sign up</a>
-        </div>
-    </div>
-    
-    <!-- Signup View -->
-    <div id="signup-view" class="auth-prompt" style="display: none;">
-        <p style="color: rgba(255, 255, 255, 0.8); text-align: center; margin-bottom: 20px; font-size: 14px;">Create your account to get started</p>
-        
-        <button id="google-signup-btn" class="google-auth-button" style="margin-bottom: 16px;">
-            <svg width="18" height="18" viewBox="0 0 24 24" style="margin-right: 10px;">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-            </svg>
-            Sign up with Google
-        </button>
-        
-        <!-- Divider -->
-        <div style="display: flex; align-items: center; margin: 16px 0; opacity: 0.6;">
-            <div style="flex: 1; height: 1px; background: rgba(255, 255, 255, 0.2);"></div>
-            <span style="padding: 0 12px; color: rgba(255, 255, 255, 0.5); font-size: 12px;">or</span>
-            <div style="flex: 1; height: 1px; background: rgba(255, 255, 255, 0.2);"></div>
-        </div>
-        
-        <button id="signup-button" class="fallback-login-button">Sign up via Solthron.com</button>
-        
-        <div style="text-align: center; margin-top: 12px;">
-            <span style="color: rgba(255, 255, 255, 0.6); font-size: 13px;">Already have an account? </span>
-            <a href="#" id="show-login" style="color: #4285F4; text-decoration: none; font-size: 13px;">Login</a>
-        </div>
-    </div>
-    
-    <div id="login-error" class="error-message"></div>
-</div>
-                    <div id="profile-details" class="profile-details" style="display: none;">
-                        <!-- Will show user details when logged in -->
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    // Inject styles and HTML into shadow root
-    shadowRoot.innerHTML = styles + htmlContent;
-    
-    // Get references to elements within shadow DOM
-    button = shadowRoot.querySelector('#solthron-floating-button');
-    outputText = shadowRoot.querySelector('#output-text');
-    solthronContainer = shadowRoot.querySelector('#solthron-container');
-    
-    // Initialize UI handlers and gallery
-    initializeUIHandlers();
-    initializeAddWorkflowFeature();
-    initializeGallery();
-    initializeAddPromptFeature();
-
-    // Hide button initially
-    button.style.display = 'none';
-}
-
-// Minimize workflow UI
-function minimizeWorkflowUI() {
-    if (!isWorkflowExecuting) return;
-
-    isWorkflowMinimized = true;
-
-    // Hide the solthron container
-    solthronContainer.style.display = 'none';
-
-    // Change button to gradient blue with blinking animation
-    const solthronButton = shadowRoot.querySelector('.solthron-button');
-    if (solthronButton) {
-        solthronButton.classList.add('minimized');
-    }
-
-    // Show the main button if it was hidden
-    if (button.style.display === 'none') {
-        button.style.display = 'block';
-    }
-}
-
-// Maximize/restore workflow UI
-function maximizeWorkflowUI() {
-    if (!isWorkflowMinimized) return;
-
-    isWorkflowMinimized = false;
-
-    // Show the solthron container
-    const buttonRect = button.getBoundingClientRect();
-    solthronContainer.style.display = 'block';
-    solthronContainer.style.pointerEvents = 'auto';
-    positionContainer(buttonRect);
-
-    // Remove gradient blue blinking animation
-    const solthronButton = shadowRoot.querySelector('.solthron-button');
-    if (solthronButton) {
-        solthronButton.classList.remove('minimized');
-    }
-}
-
-function initializeGallery() {
-    const galleryBtn = shadowRoot.getElementById('gallery-btn');
-    const galleryView = shadowRoot.getElementById('gallery-view');
-    const categorySelection = shadowRoot.getElementById('category-selection');
-    const galleryContent = shadowRoot.getElementById('gallery-content');
-    const searchInput = shadowRoot.getElementById('gallery-search');
-    const outputContainer = shadowRoot.querySelector('.output-container');
- 
-    galleryBtn.addEventListener('click', () => {
-        const isVisible = galleryView.style.display !== 'none';
-
-        if (isVisible) {
-            // Close gallery and show output
-            closeAllSections();
-
-            // If workflow is executing, ensure output container shows the running workflow
-            if (isWorkflowExecuting && activeWorkflowExecutor) {
-                outputContainer.style.display = 'block';
-            }
-        } else {
-            // If workflow is executing, warn user before hiding it
-            if (isWorkflowExecuting && activeWorkflowExecutor && activeWorkflowExecutor.isRunning) {
-                // Just hide the output container but keep workflow running
-                outputContainer.style.display = 'none';
-            } else {
-                // Close all other sections normally
-                closeAllSections();
-            }
-
-            galleryView.style.display = 'block';
-            outputContainer.style.display = 'none';
-            galleryBtn.querySelector('svg').style.stroke = '#00ff00';
-
-            // Reset to category selection
-            categorySelection.style.display = 'block';
-            galleryContent.style.display = 'none';
-
-            // ✅ FIX: Also hide workflow subcategory when opening gallery
-            const workflowSubcategorySelection = shadowRoot.getElementById('workflow-subcategory-selection');
-            if (workflowSubcategorySelection) {
-                workflowSubcategorySelection.style.display = 'none';
-            }
-
-            currentCategory = null;
-        }
-    });
- 
-    // Track workflow subcategory
-    let workflowSubcategory = null;
-
-    shadowRoot.querySelectorAll('.category-item').forEach(item => {
-    item.addEventListener('click', async () => {
-        const category = item.dataset.category;
-
-        // Handle workflow category differently - show subcategory selection
-        if (category === 'workflows') {
-            categorySelection.style.display = 'none';
-            const workflowSubcategorySelection = shadowRoot.getElementById('workflow-subcategory-selection');
-            workflowSubcategorySelection.style.display = 'block';
-            return;
-        }
-
-        // Handle other categories (prompts, chats)
-        currentCategory = category;
-        categorySelection.style.display = 'none';
-        galleryContent.style.display = 'block';
-
-        const galleryTitle = shadowRoot.getElementById('gallery-title');
-        galleryTitle.textContent = currentCategory === 'prompts' ? 'Saved Prompts' :
-                                 currentCategory === 'chats' ? 'Saved Chats' :
-                                 'Workflows';
-
-        const items = await (
-            currentCategory === 'prompts' ? loadPrompts() :
-            currentCategory === 'chats' ? loadSavedChats() :
-            loadWorkflows()
-        );
-        renderGalleryList(items, '');
-
-        // ✅ ADD THIS: Initialize add button for prompts
-        if (currentCategory === 'prompts') {
-            updateGalleryHeaderWithAddButton();
-        }
-    });
-});
-
-    // Handle workflow subcategory selection (Templates or Custom)
-    shadowRoot.querySelectorAll('[data-workflow-type]').forEach(item => {
-        item.addEventListener('click', async () => {
-            workflowSubcategory = item.dataset.workflowType;
-            currentCategory = 'workflows';
-
-            const workflowSubcategorySelection = shadowRoot.getElementById('workflow-subcategory-selection');
-            workflowSubcategorySelection.style.display = 'none';
-            galleryContent.style.display = 'block';
-
-            const galleryTitle = shadowRoot.getElementById('gallery-title');
-            galleryTitle.textContent = workflowSubcategory === 'templates' ? 'Workflow Templates' : 'Custom Workflows';
-
-            // Load workflows and filter based on subcategory
-            const allWorkflows = await loadWorkflows();
-            const filteredWorkflows = workflowSubcategory === 'templates'
-                ? allWorkflows.filter(w => w.source === 'built_in')
-                : allWorkflows.filter(w => w.source !== 'built_in');
-
-            renderGalleryList(filteredWorkflows, '');
-
-            // ✅ Only show add button for Custom workflows
-            if (workflowSubcategory === 'custom') {
-                updateGalleryHeaderWithAddWorkflowButton();
-            }
-        });
-    });
- 
-    // Back button from gallery content
-    shadowRoot.querySelector('#back-from-gallery').addEventListener('click', () => {
-        // Check if we're in workflow mode - go back to workflow subcategory
-        if (currentCategory === 'workflows') {
-            galleryContent.style.display = 'none';
-            const workflowSubcategorySelection = shadowRoot.getElementById('workflow-subcategory-selection');
-            workflowSubcategorySelection.style.display = 'block';
-            workflowSubcategory = null;
-        } else {
-            // For other categories, go back to main category selection
-            categorySelection.style.display = 'block';
-            galleryContent.style.display = 'none';
-            currentCategory = null;
-        }
-
-        // ✅ Remove add buttons and their wrappers when going back
-        const addPromptBtn = shadowRoot.getElementById('add-prompt-btn');
-        const addWorkflowBtn = shadowRoot.getElementById('add-workflow-btn');
-        const promptButtonsWrapper = shadowRoot.getElementById('prompt-buttons-wrapper');
-        const workflowButtonsWrapper = shadowRoot.getElementById('workflow-buttons-wrapper');
-
-        if (addPromptBtn) {
-            addPromptBtn.remove();
-        }
-        if (addWorkflowBtn) {
-            addWorkflowBtn.remove();
-        }
-
-        // Remove the wrappers to prevent duplicates
-        const galleryTitle = shadowRoot.getElementById('gallery-title');
-        const titleRow = galleryTitle ? galleryTitle.parentElement : null;
-
-        if (promptButtonsWrapper && titleRow) {
-            // First, move the back button out of the wrapper before removing it
-            const backButton = promptButtonsWrapper.querySelector('.back-to-categories');
-            if (backButton) {
-                titleRow.appendChild(backButton);
-            }
-            promptButtonsWrapper.remove();
-        }
-
-        if (workflowButtonsWrapper && titleRow) {
-            // First, move the back button out of the wrapper before removing it
-            const backButton = workflowButtonsWrapper.querySelector('.back-to-categories');
-            if (backButton) {
-                titleRow.appendChild(backButton);
-            }
-            workflowButtonsWrapper.remove();
-        }
-
-        // Hide add form if visible
-        const addPromptForm = shadowRoot.getElementById('add-prompt-form');
-        const addWorkflowForm = shadowRoot.getElementById('add-workflow-form');
-        if (addPromptForm) {
-            addPromptForm.style.display = 'none';
-        }
-        if (addWorkflowForm) {
-            addWorkflowForm.style.display = 'none';
-        }
-
-        const galleryList = shadowRoot.getElementById('gallery-list');
-        if (galleryList) {
-            galleryList.style.display = 'block';
-        }
-    });
-
-    // Back button from workflow subcategory to main categories
-    shadowRoot.querySelectorAll('.back-to-categories').forEach(btn => {
-        btn.addEventListener('click', () => {
-            categorySelection.style.display = 'block';
-            galleryContent.style.display = 'none';
-            const workflowSubcategorySelection = shadowRoot.getElementById('workflow-subcategory-selection');
-            workflowSubcategorySelection.style.display = 'none';
-            currentCategory = null;
-            workflowSubcategory = null;
-
-            // ✅ Remove add buttons when going back
-            const addPromptBtn = shadowRoot.getElementById('add-prompt-btn');
-            const addWorkflowBtn = shadowRoot.getElementById('add-workflow-btn');
-            if (addPromptBtn) {
-                addPromptBtn.remove();
-            }
-            if (addWorkflowBtn) {
-                addWorkflowBtn.remove();
-            }
-
-            // Hide add form if visible
-            const addPromptForm = shadowRoot.getElementById('add-prompt-form');
-            const addWorkflowForm = shadowRoot.getElementById('add-workflow-form');
-            if (addPromptForm) {
-                addPromptForm.style.display = 'none';
-            }
-            if (addWorkflowForm) {
-                addWorkflowForm.style.display = 'none';
-            }
-
-            const galleryList = shadowRoot.getElementById('gallery-list');
-            if (galleryList) {
-                galleryList.style.display = 'block';
-            }
-        });
-    });
- 
-    // Prevent keyboard events from bubbling to Claude's interface
-    searchInput.addEventListener('keydown', (e) => {
-        e.stopPropagation();
-    });
-    searchInput.addEventListener('keyup', (e) => {
-        e.stopPropagation();
-    });
-    searchInput.addEventListener('keypress', (e) => {
-        e.stopPropagation();
-    });
-
-    searchInput.addEventListener('input', async (e) => {
-        e.stopPropagation();
-        if (!currentCategory) return;
-        const items = await (
-            currentCategory === 'prompts' ? loadPrompts() :
-            currentCategory === 'notes' ? loadNotes() :
-            loadPersonaTemplates()
-        );
-        renderGalleryList(items, e.target.value);
-    });
 }
 
 // ========== ADD PROMPT FEATURE ==========
