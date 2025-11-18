@@ -84,6 +84,49 @@ def init_analytics_db():
 init_analytics_db()
 
 
+# ========================================
+# EXTENSION ANALYTICS DATABASE SETUP
+# ========================================
+def init_extension_analytics_db():
+    """Initialize analytics database for Chrome extension tracking"""
+    conn = sqlite3.connect('extension_analytics.db')
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS extension_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            session_id TEXT,
+            user_id TEXT,
+            extension_version TEXT,
+            browser_info TEXT,
+            metadata TEXT,
+            error_message TEXT
+        )
+    ''')
+
+    # Create index for faster queries
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_event_type ON extension_events(event_type)
+    ''')
+
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_timestamp ON extension_events(timestamp)
+    ''')
+
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_session_id ON extension_events(session_id)
+    ''')
+
+    conn.commit()
+    conn.close()
+    print("✅ Extension analytics database initialized!")
+
+# Initialize extension analytics when server starts
+init_extension_analytics_db()
+
+
 # CREDIT MAPPING FUNCTION (matches your extension logic exactly)
 def get_feature_credits(mode):
     """Map features to credit costs - matches extension logic exactly"""
@@ -7147,6 +7190,593 @@ def demo_dashboard():
     </body>
     </html>
     '''
+
+
+# ========================================
+# EXTENSION ANALYTICS ENDPOINTS
+# ========================================
+
+@app.route('/extension/track', methods=['POST'])
+def track_extension_event():
+    """Track Chrome extension events"""
+    try:
+        data = request.get_json()
+        event_type = data.get('event')
+        session_id = data.get('sessionId', 'unknown')
+        user_id = data.get('userId')  # May be null if not logged in
+        extension_version = data.get('version', '1.5')
+        browser_info = request.headers.get('User-Agent', 'unknown')
+        metadata = data.get('metadata', {})
+        error_message = data.get('error')
+
+        # Save to database
+        conn = sqlite3.connect('extension_analytics.db')
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            INSERT INTO extension_events (event_type, session_id, user_id, extension_version, browser_info, metadata, error_message)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            event_type,
+            session_id,
+            user_id,
+            extension_version,
+            browser_info,
+            json.dumps(metadata),
+            error_message
+        ))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'event': event_type})
+
+    except Exception as e:
+        print(f"❌ Extension tracking error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/extension/analytics', methods=['GET'])
+def get_extension_analytics():
+    """Get extension analytics statistics"""
+    try:
+        conn = sqlite3.connect('extension_analytics.db')
+        cursor = conn.cursor()
+
+        # Helper function to get stats by time period
+        def get_stats(time_filter=''):
+            if time_filter:
+                where_clause = f"WHERE {time_filter}"
+            else:
+                where_clause = ""
+
+            # Get event counts
+            cursor.execute(f'''
+                SELECT event_type, COUNT(*) as count
+                FROM extension_events
+                {where_clause}
+                GROUP BY event_type
+            ''')
+            events = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # Get unique sessions
+            cursor.execute(f'''
+                SELECT COUNT(DISTINCT session_id)
+                FROM extension_events
+                {where_clause}
+            ''')
+            unique_sessions = cursor.fetchone()[0]
+
+            # Get unique users (logged in)
+            cursor.execute(f'''
+                SELECT COUNT(DISTINCT user_id)
+                FROM extension_events
+                {where_clause}
+                AND user_id IS NOT NULL
+            ''')
+            unique_users = cursor.fetchone()[0]
+
+            return {
+                'events': events,
+                'unique_sessions': unique_sessions,
+                'unique_users': unique_users
+            }
+
+        # Calculate different time periods
+        totals = get_stats()
+        last_24h = get_stats("timestamp >= datetime('now', '-1 day')")
+        last_7d = get_stats("timestamp >= datetime('now', '-7 days')")
+        last_30d = get_stats("timestamp >= datetime('now', '-30 days')")
+        month_to_date = get_stats("strftime('%Y-%m', timestamp) = strftime('%Y-%m', 'now')")
+
+        # Get daily breakdown for last 30 days
+        cursor.execute('''
+            SELECT
+                date(timestamp) as event_date,
+                event_type,
+                COUNT(*) as count,
+                COUNT(DISTINCT session_id) as unique_sessions
+            FROM extension_events
+            WHERE timestamp >= datetime('now', '-30 days')
+            GROUP BY event_date, event_type
+            ORDER BY event_date DESC
+        ''')
+
+        daily_data = {}
+        daily_sessions = {}
+        for row in cursor.fetchall():
+            date, event_type, count, sessions = row
+            if date not in daily_data:
+                daily_data[date] = {}
+                daily_sessions[date] = sessions
+            daily_data[date][event_type] = count
+
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'totals': totals,
+            'last_24h': last_24h,
+            'last_7d': last_7d,
+            'last_30d': last_30d,
+            'month_to_date': month_to_date,
+            'daily': daily_data,
+            'daily_sessions': daily_sessions
+        })
+
+    except Exception as e:
+        print(f"❌ Extension analytics error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/extension/dashboard', methods=['GET'])
+def extension_dashboard():
+    """Extension Analytics Dashboard"""
+    return '''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Solthron Extension Analytics Dashboard</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+                padding: 20px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+            }
+            .container {
+                max-width: 1400px;
+                margin: 0 auto;
+            }
+            .header {
+                background: white;
+                padding: 30px;
+                border-radius: 16px;
+                margin-bottom: 30px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            }
+            h1 {
+                color: #333;
+                font-size: 32px;
+                margin-bottom: 10px;
+            }
+            .subtitle {
+                color: #666;
+                font-size: 16px;
+            }
+            .time-filter {
+                display: flex;
+                gap: 10px;
+                margin-bottom: 30px;
+                flex-wrap: wrap;
+            }
+            .time-btn {
+                padding: 12px 24px;
+                border: none;
+                background: white;
+                border-radius: 12px;
+                cursor: pointer;
+                font-weight: 600;
+                font-size: 14px;
+                transition: all 0.3s ease;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                color: #667eea;
+            }
+            .time-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            }
+            .time-btn.active {
+                background: #667eea;
+                color: white;
+            }
+            .metrics-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                gap: 20px;
+                margin-bottom: 30px;
+            }
+            .metric-card {
+                background: white;
+                padding: 25px;
+                border-radius: 16px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+                transition: transform 0.3s ease;
+            }
+            .metric-card:hover {
+                transform: translateY(-5px);
+            }
+            .metric-label {
+                color: #666;
+                font-size: 14px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-bottom: 10px;
+            }
+            .metric-value {
+                color: #667eea;
+                font-size: 42px;
+                font-weight: 700;
+                line-height: 1;
+            }
+            .metric-icon {
+                float: right;
+                font-size: 32px;
+            }
+            .funnel-section {
+                background: white;
+                padding: 30px;
+                border-radius: 16px;
+                margin-bottom: 30px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            }
+            .funnel-title {
+                color: #333;
+                font-size: 24px;
+                margin-bottom: 20px;
+                font-weight: 700;
+            }
+            .funnel-step {
+                display: flex;
+                align-items: center;
+                padding: 15px;
+                margin-bottom: 10px;
+                background: #f8f9fa;
+                border-radius: 12px;
+                position: relative;
+            }
+            .funnel-step-number {
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                background: #667eea;
+                color: white;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: 700;
+                margin-right: 15px;
+            }
+            .funnel-step-label {
+                flex: 1;
+                font-weight: 600;
+                color: #333;
+            }
+            .funnel-step-value {
+                font-size: 28px;
+                font-weight: 700;
+                color: #667eea;
+                margin-right: 15px;
+            }
+            .funnel-step-percent {
+                font-size: 14px;
+                color: #666;
+                background: #e9ecef;
+                padding: 5px 12px;
+                border-radius: 20px;
+            }
+            .events-table {
+                background: white;
+                padding: 30px;
+                border-radius: 16px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+                overflow-x: auto;
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+            th {
+                background: #667eea;
+                color: white;
+                padding: 15px;
+                text-align: left;
+                font-weight: 600;
+                font-size: 14px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+            th:first-child {
+                border-radius: 12px 0 0 0;
+            }
+            th:last-child {
+                border-radius: 0 12px 0 0;
+            }
+            td {
+                padding: 15px;
+                border-bottom: 1px solid #e9ecef;
+                color: #333;
+            }
+            tr:hover {
+                background: #f8f9fa;
+            }
+            .warning {
+                background: #fff3cd;
+                border-left: 4px solid #ffc107;
+                padding: 20px;
+                border-radius: 12px;
+                margin-bottom: 30px;
+                color: #856404;
+            }
+            .warning-title {
+                font-weight: 700;
+                font-size: 18px;
+                margin-bottom: 10px;
+            }
+            .refresh-btn {
+                background: #667eea;
+                color: white;
+                border: none;
+                padding: 12px 24px;
+                border-radius: 12px;
+                cursor: pointer;
+                font-weight: 600;
+                font-size: 14px;
+                transition: all 0.3s ease;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            .refresh-btn:hover {
+                background: #5568d3;
+                transform: translateY(-2px);
+            }
+            .loading {
+                text-align: center;
+                padding: 60px;
+                color: white;
+                font-size: 18px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🔍 Extension Analytics Dashboard</h1>
+                <p class="subtitle">Track user behavior and identify drop-off points</p>
+            </div>
+
+            <div class="time-filter">
+                <button class="time-btn active" onclick="setTimeFilter('last_24h')">Last 24 Hours</button>
+                <button class="time-btn" onclick="setTimeFilter('last_7d')">Last 7 Days</button>
+                <button class="time-btn" onclick="setTimeFilter('last_30d')">Last 30 Days</button>
+                <button class="time-btn" onclick="setTimeFilter('month_to_date')">This Month</button>
+                <button class="time-btn" onclick="setTimeFilter('totals')">All Time</button>
+                <button class="refresh-btn" onclick="loadAnalytics()" style="margin-left: auto;">↻ Refresh</button>
+            </div>
+
+            <div id="loading" class="loading">Loading analytics...</div>
+            <div id="content" style="display: none;">
+
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-label">📦 Installs / Opens</div>
+                        <div class="metric-value" id="installs">0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">👤 Unique Sessions</div>
+                        <div class="metric-value" id="uniqueSessions">0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">✅ Logged In Users</div>
+                        <div class="metric-value" id="loggedInUsers">0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">⚡ Feature Uses</div>
+                        <div class="metric-value" id="featureUses">0</div>
+                    </div>
+                </div>
+
+                <div class="funnel-section">
+                    <h2 class="funnel-title">📊 User Funnel Analysis</h2>
+                    <div id="warningMessage" class="warning" style="display: none;">
+                        <div class="warning-title">⚠️ Critical Drop-off Detected!</div>
+                        <div id="warningText"></div>
+                    </div>
+                    <div class="funnel-step">
+                        <div class="funnel-step-number">1</div>
+                        <div class="funnel-step-label">Extension Opened</div>
+                        <div class="funnel-step-value" id="funnel1">0</div>
+                        <div class="funnel-step-percent">100%</div>
+                    </div>
+                    <div class="funnel-step">
+                        <div class="funnel-step-number">2</div>
+                        <div class="funnel-step-label">Login Modal Viewed</div>
+                        <div class="funnel-step-value" id="funnel2">0</div>
+                        <div class="funnel-step-percent" id="funnel2pct">0%</div>
+                    </div>
+                    <div class="funnel-step">
+                        <div class="funnel-step-number">3</div>
+                        <div class="funnel-step-label">Auth Attempt Started</div>
+                        <div class="funnel-step-value" id="funnel3">0</div>
+                        <div class="funnel-step-percent" id="funnel3pct">0%</div>
+                    </div>
+                    <div class="funnel-step">
+                        <div class="funnel-step-number">4</div>
+                        <div class="funnel-step-label">Auth Success</div>
+                        <div class="funnel-step-value" id="funnel4">0</div>
+                        <div class="funnel-step-percent" id="funnel4pct">0%</div>
+                    </div>
+                </div>
+
+                <div class="events-table">
+                    <h2 class="funnel-title">📅 Daily Breakdown (Last 30 Days)</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Sessions</th>
+                                <th>Opens</th>
+                                <th>Auth Attempts</th>
+                                <th>Auth Success</th>
+                                <th>Feature Uses</th>
+                                <th>Errors</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dailyTable">
+                            <tr><td colspan="7" style="text-align: center; padding: 40px; color: #999;">No data available</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            let currentFilter = 'last_24h';
+            let statsData = null;
+
+            async function loadAnalytics() {
+                document.getElementById('loading').style.display = 'block';
+                document.getElementById('content').style.display = 'none';
+
+                try {
+                    const response = await fetch('/extension/analytics');
+                    const data = await response.json();
+
+                    if (data.success) {
+                        statsData = data;
+                        document.getElementById('loading').style.display = 'none';
+                        document.getElementById('content').style.display = 'block';
+                        updateDashboard();
+                    } else {
+                        document.getElementById('loading').innerHTML = '❌ Error loading analytics: ' + (data.error || 'Unknown error');
+                    }
+                } catch (error) {
+                    document.getElementById('loading').innerHTML = '❌ Failed to load analytics: ' + error.message;
+                }
+            }
+
+            function setTimeFilter(filter) {
+                currentFilter = filter;
+                document.querySelectorAll('.time-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                event.target.classList.add('active');
+                updateDashboard();
+            }
+
+            function updateDashboard() {
+                if (!statsData) return;
+
+                const data = statsData[currentFilter];
+                const events = data.events || {};
+
+                // Update main metrics
+                document.getElementById('installs').textContent = (events.extension_opened || 0);
+                document.getElementById('uniqueSessions').textContent = data.unique_sessions || 0;
+                document.getElementById('loggedInUsers').textContent = data.unique_users || 0;
+                document.getElementById('featureUses').textContent = (events.feature_used || 0);
+
+                // Update funnel
+                const opened = events.extension_opened || 0;
+                const loginViewed = events.login_modal_shown || 0;
+                const authAttempt = events.auth_attempt || 0;
+                const authSuccess = events.auth_success || 0;
+
+                document.getElementById('funnel1').textContent = opened;
+                document.getElementById('funnel2').textContent = loginViewed;
+                document.getElementById('funnel3').textContent = authAttempt;
+                document.getElementById('funnel4').textContent = authSuccess;
+
+                if (opened > 0) {
+                    const pct2 = ((loginViewed / opened) * 100).toFixed(1);
+                    const pct3 = ((authAttempt / opened) * 100).toFixed(1);
+                    const pct4 = ((authSuccess / opened) * 100).toFixed(1);
+
+                    document.getElementById('funnel2pct').textContent = pct2 + '%';
+                    document.getElementById('funnel3pct').textContent = pct3 + '%';
+                    document.getElementById('funnel4pct').textContent = pct4 + '%';
+
+                    // Check for critical drop-offs
+                    const warningDiv = document.getElementById('warningMessage');
+                    const warningText = document.getElementById('warningText');
+
+                    if (opened > 10) {  // Only show warnings if we have enough data
+                        if (loginViewed < opened * 0.3) {
+                            warningDiv.style.display = 'block';
+                            warningText.innerHTML = `<strong>${opened - loginViewed}</strong> users opened the extension but never saw the login modal. They might not know they need to authenticate!`;
+                        } else if (authAttempt < loginViewed * 0.5) {
+                            warningDiv.style.display = 'block';
+                            warningText.innerHTML = `<strong>${loginViewed - authAttempt}</strong> users saw the login modal but didn't attempt to authenticate. The login flow might be confusing or unappealing.`;
+                        } else if (authSuccess < authAttempt * 0.7) {
+                            warningDiv.style.display = 'block';
+                            warningText.innerHTML = `<strong>${authAttempt - authSuccess}</strong> authentication attempts failed! This indicates a technical issue with the auth flow.`;
+                        } else {
+                            warningDiv.style.display = 'none';
+                        }
+                    }
+                }
+
+                // Update daily table
+                updateDailyTable();
+            }
+
+            function updateDailyTable() {
+                if (!statsData) return;
+
+                const tbody = document.getElementById('dailyTable');
+                const daily = statsData.daily;
+                const sessions = statsData.daily_sessions;
+
+                const dates = Object.keys(daily).sort().reverse();
+
+                if (dates.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #999;">No data available yet</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = '';
+                dates.forEach(date => {
+                    const dayData = daily[date];
+                    const row = tbody.insertRow();
+                    row.innerHTML = `
+                        <td><strong>${date}</strong></td>
+                        <td>${sessions[date] || 0}</td>
+                        <td>${dayData.extension_opened || 0}</td>
+                        <td>${dayData.auth_attempt || 0}</td>
+                        <td>${dayData.auth_success || 0}</td>
+                        <td>${dayData.feature_used || 0}</td>
+                        <td style="color: #dc3545; font-weight: 600;">${dayData.error_occurred || 0}</td>
+                    `;
+                });
+            }
+
+            // Load analytics on page load
+            loadAnalytics();
+
+            // Auto-refresh every 30 seconds
+            setInterval(loadAnalytics, 30000);
+        </script>
+    </body>
+    </html>
+    '''
+
 
 if __name__ == '__main__':
     app.run(debug=True)

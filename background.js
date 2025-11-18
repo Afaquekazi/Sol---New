@@ -1,8 +1,96 @@
+// ========================================
+// ANALYTICS TRACKING
+// ========================================
+const ANALYTICS_ENDPOINT = 'https://afaque.pythonanywhere.com/extension/track';
+const EXTENSION_VERSION = '1.5';
+
+// Generate unique session ID
+function getSessionId() {
+  let sessionId = localStorage.getItem('extension_session_id');
+  if (!sessionId) {
+    sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    localStorage.setItem('extension_session_id', sessionId);
+  }
+  return sessionId;
+}
+
+// Track event function
+async function trackEvent(eventType, metadata = {}, error = null) {
+  try {
+    const sessionId = getSessionId();
+
+    // Get user ID if logged in
+    let userId = null;
+    try {
+      const result = await chrome.storage.local.get(['authToken']);
+      if (result.authToken) {
+        // Extract user ID from token if possible (JWT format)
+        try {
+          const tokenParts = result.authToken.split('.');
+          if (tokenParts.length === 3) {
+            const payload = JSON.parse(atob(tokenParts[1]));
+            userId = payload.uid || payload.user_id || null;
+          }
+        } catch (e) {
+          // Token not JWT format, that's okay
+        }
+      }
+    } catch (e) {
+      // No auth token
+    }
+
+    const data = {
+      event: eventType,
+      sessionId: sessionId,
+      userId: userId,
+      version: EXTENSION_VERSION,
+      metadata: metadata,
+      error: error
+    };
+
+    fetch(ANALYTICS_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    }).catch(() => {
+      // Silent fail - don't interrupt user experience
+    });
+  } catch (e) {
+    // Silent fail
+  }
+}
+
+// Track extension installation
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === 'install') {
+    trackEvent('extension_installed', {
+      reason: 'install',
+      timestamp: new Date().toISOString()
+    });
+  } else if (details.reason === 'update') {
+    trackEvent('extension_updated', {
+      reason: 'update',
+      previousVersion: details.previousVersion,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 chrome.action.onClicked.addListener(async (tab) => {
  try {
+   // Track extension opened
+   trackEvent('extension_opened', {
+     url: tab.url,
+     timestamp: new Date().toISOString()
+   });
+
    await chrome.tabs.sendMessage(tab.id, { action: "toggleExtension" });
  } catch (error) {
    // Error sending toggle message
+   trackEvent('error_occurred', {
+     error_type: 'toggle_extension_failed',
+     url: tab.url
+   }, error.message);
  }
 });
 

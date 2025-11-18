@@ -34,6 +34,65 @@ let currentInputField = null;
 // ========== QUICK SAVE STATE ==========
 let justSavedPrompt = false;
 
+// ========== ANALYTICS TRACKING ==========
+const ANALYTICS_ENDPOINT = 'https://afaque.pythonanywhere.com/extension/track';
+const EXTENSION_VERSION = '1.5';
+let extensionSessionId = null;
+
+// Generate unique session ID
+function getExtensionSessionId() {
+    if (!extensionSessionId) {
+        extensionSessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    }
+    return extensionSessionId;
+}
+
+// Track analytics event
+async function trackAnalyticsEvent(eventType, metadata = {}, error = null) {
+    try {
+        const sessionId = getExtensionSessionId();
+
+        // Get user ID if logged in
+        let userId = null;
+        try {
+            const authToken = await BackendAuth.getAuthToken();
+            if (authToken) {
+                // Try to extract user ID from JWT
+                try {
+                    const tokenParts = authToken.split('.');
+                    if (tokenParts.length === 3) {
+                        const payload = JSON.parse(atob(tokenParts[1]));
+                        userId = payload.uid || payload.user_id || null;
+                    }
+                } catch (e) {
+                    // Token not JWT format
+                }
+            }
+        } catch (e) {
+            // No auth token
+        }
+
+        const data = {
+            event: eventType,
+            sessionId: sessionId,
+            userId: userId,
+            version: EXTENSION_VERSION,
+            metadata: metadata,
+            error: error
+        };
+
+        fetch(ANALYTICS_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        }).catch(() => {
+            // Silent fail - don't interrupt user experience
+        });
+    } catch (e) {
+        // Silent fail
+    }
+}
+
 // ✨ Double-click animation function
 function triggerDoubleClickAnimation() {
     const solthronButton = shadowRoot.querySelector('.solthron-button');
@@ -2222,11 +2281,25 @@ async function handleTextProcessing(text) {
             let formattedOutput = response.data.prompt;
             updateOutput(formattedOutput);
             solthronContainer.style.display = 'block';
+
+            // Track feature usage
+            trackAnalyticsEvent('feature_used', {
+                mode: selectedMode,
+                timestamp: new Date().toISOString()
+            });
         } else {
             showError('Failed to process text');
+            trackAnalyticsEvent('error_occurred', {
+                error_type: 'feature_failed',
+                mode: selectedMode
+            }, 'Failed to process text');
         }
     } catch (error) {
         showError('Error processing text');
+        trackAnalyticsEvent('error_occurred', {
+            error_type: 'feature_exception',
+            mode: selectedMode
+        }, error.message);
     } finally {
         button.querySelector('.solthron-button').textContent = '➤';
     }
@@ -9463,9 +9536,9 @@ function initializeProfileHandlers() {
         updateProfileView(isLoggedIn);
     }
     
-    profileBtn.addEventListener('click', () => {
+    profileBtn.addEventListener('click', async () => {
         const isVisible = profileView.style.display !== 'none';
-        
+
         if (isVisible) {
             // Close profile and show output
             closeAllSections();
@@ -9475,7 +9548,15 @@ function initializeProfileHandlers() {
             profileView.style.display = 'block';
             shadowRoot.querySelector('.output-container').style.display = 'none';
             profileBtn.querySelector('svg').style.stroke = '#00ff00';
-            
+
+            // Track login modal shown
+            const isLoggedIn = await BackendAuth.isLoggedIn();
+            if (!isLoggedIn) {
+                trackAnalyticsEvent('login_modal_shown', {
+                    timestamp: new Date().toISOString()
+                });
+            }
+
             checkAuthState();
         }
     });
@@ -9745,8 +9826,15 @@ const messageHandler = async (event) => {
 // Google Signup Button Handler
 shadowRoot.getElementById('google-signup-btn').addEventListener('click', async (e) => {
     e.preventDefault();
-    
+
     try {
+        // Track auth attempt
+        trackAnalyticsEvent('auth_attempt', {
+            method: 'google',
+            action: 'signup',
+            timestamp: new Date().toISOString()
+        });
+
         // Show loading
         const originalHTML = e.target.innerHTML;
         e.target.innerHTML = `
@@ -9754,20 +9842,32 @@ shadowRoot.getElementById('google-signup-btn').addEventListener('click', async (
             Signing up...
         `;
         e.target.disabled = true;
-        
+
         // Create auth iframe
         const token = await createAuthIframe('signup');
-        
+
         // Store token
         await BackendAuth.setAuthToken(token);
         pageCredits = null;
-        
+
         // Update UI
         updateProfileView(true);
-        
 
-        
+        // Track auth success
+        trackAnalyticsEvent('auth_success', {
+            method: 'google',
+            action: 'signup',
+            timestamp: new Date().toISOString()
+        });
+
+
     } catch (error) {
+        // Track auth failure
+        trackAnalyticsEvent('auth_failed', {
+            method: 'google',
+            action: 'signup',
+            timestamp: new Date().toISOString()
+        }, error.message);
 
         if (error.message !== 'User cancelled') {
             showLoginError('Signup failed: ' + error.message);
@@ -9790,8 +9890,15 @@ shadowRoot.getElementById('google-signup-btn').addEventListener('click', async (
 // Google Login Button Handler
 shadowRoot.getElementById('google-login-btn').addEventListener('click', async (e) => {
     e.preventDefault();
-    
+
     try {
+        // Track auth attempt
+        trackAnalyticsEvent('auth_attempt', {
+            method: 'google',
+            action: 'login',
+            timestamp: new Date().toISOString()
+        });
+
         // Show loading
         const originalHTML = e.target.innerHTML;
         e.target.innerHTML = `
@@ -9799,20 +9906,32 @@ shadowRoot.getElementById('google-login-btn').addEventListener('click', async (e
             Logging in...
         `;
         e.target.disabled = true;
-        
+
         // Create auth iframe
         const token = await createAuthIframe('login');
-        
+
         // Store token
         await BackendAuth.setAuthToken(token);
         pageCredits = null;
-        
+
         // Update UI
         updateProfileView(true);
-        
 
-        
+        // Track auth success
+        trackAnalyticsEvent('auth_success', {
+            method: 'google',
+            action: 'login',
+            timestamp: new Date().toISOString()
+        });
+
+
     } catch (error) {
+        // Track auth failure
+        trackAnalyticsEvent('auth_failed', {
+            method: 'google',
+            action: 'login',
+            timestamp: new Date().toISOString()
+        }, error.message);
 
         if (error.message !== 'User cancelled') {
             showLoginError('Login failed: ' + error.message);
