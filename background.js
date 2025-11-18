@@ -4,20 +4,28 @@
 const ANALYTICS_ENDPOINT = 'https://afaque.pythonanywhere.com/extension/track';
 const EXTENSION_VERSION = '1.5';
 
-// Generate unique session ID
-function getSessionId() {
-  let sessionId = localStorage.getItem('extension_session_id');
-  if (!sessionId) {
-    sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    localStorage.setItem('extension_session_id', sessionId);
+// Generate unique session ID (async for service worker)
+async function getSessionId() {
+  try {
+    const result = await chrome.storage.local.get(['extension_session_id']);
+    let sessionId = result.extension_session_id;
+
+    if (!sessionId) {
+      sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      await chrome.storage.local.set({ extension_session_id: sessionId });
+    }
+
+    return sessionId;
+  } catch (e) {
+    // Fallback to random session ID if storage fails
+    return 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
   }
-  return sessionId;
 }
 
 // Track event function
 async function trackEvent(eventType, metadata = {}, error = null) {
   try {
-    const sessionId = getSessionId();
+    const sessionId = await getSessionId();
 
     // Get user ID if logged in
     let userId = null;
